@@ -14,7 +14,8 @@ from market_analyzer import MarketAnalyzer
 class ImprovedTradingStrategies:
     """Enhanced trading strategies with dynamic SL/TP calculation"""
     
-    def __init__(self):
+    def __init__(self, config=None):
+        self.config = config or {}
         self.ti = TI()
         self.market_analyzer = MarketAnalyzer()
     

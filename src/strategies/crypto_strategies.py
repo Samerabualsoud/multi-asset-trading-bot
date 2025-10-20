@@ -31,7 +31,8 @@ class CryptoTradingStrategies:
     - News/sentiment driven
     """
     
-    def __init__(self):
+    def __init__(self, config=None):
+        self.config = config or {}
         self.ti = TI()
         self.market_analyzer = MarketAnalyzer()
     

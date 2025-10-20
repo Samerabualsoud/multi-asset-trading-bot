@@ -28,11 +28,18 @@ class MetalsTradingStrategies:
     - Best liquidity during US/London sessions
     """
     
-    def __init__(self):
-        from ..core.indicators import TechnicalIndicators
-        from ..core.market_analyzer import MarketAnalyzer
+    def __init__(self, config=None):
+        self.config = config or {}
         
-        self.ti = TechnicalIndicators()
+        # Import locally to avoid circular imports
+        try:
+            from indicators import EnhancedTechnicalIndicators
+            from market_analyzer import MarketAnalyzer
+        except ImportError:
+            from ..core.indicators import EnhancedTechnicalIndicators
+            from ..core.market_analyzer import MarketAnalyzer
+        
+        self.ti = EnhancedTechnicalIndicators()
         self.market_analyzer = MarketAnalyzer()
     
     def metals_strategy_1_safe_haven_flow(self, df_h1: pd.DataFrame, df_h4: pd.DataFrame,
