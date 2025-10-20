@@ -16,16 +16,16 @@ print("=" * 60)
 # Test 1: Imports
 print("\n1. Testing imports...")
 try:
-    from core.indicators import EnhancedTechnicalIndicators
-    from core.market_analyzer import MarketAnalyzer
-    from core.risk_manager import EnhancedRiskManager
-    from core.position_monitor import PositionMonitor
-    from core.strategy_optimizer import StrategyOptimizer
-    from strategies.forex_strategies import ImprovedTradingStrategies
-    from strategies.crypto_strategies import CryptoTradingStrategies
-    from strategies.metals_strategies import MetalsTradingStrategies
-    from utils.asset_detector import detect_asset_type
-    from utils.config_validator import ConfigValidator
+    from src.core.indicators import EnhancedTechnicalIndicators
+    from src.core.market_analyzer import MarketAnalyzer
+    from src.core.risk_manager import EnhancedRiskManager
+    from src.core.position_monitor import PositionMonitor
+    from src.core.strategy_optimizer import StrategyOptimizer
+    from src.strategies.forex_strategies import ImprovedTradingStrategies
+    from src.strategies.crypto_strategies import CryptoTradingStrategies
+    from src.strategies.metals_strategies import MetalsTradingStrategies
+    from src.utils.asset_detector import detect_asset_type
+    from src.utils.config_validator import ConfigValidator
     print("✅ All imports successful!")
 except Exception as e:
     print(f"❌ Import error: {e}")
