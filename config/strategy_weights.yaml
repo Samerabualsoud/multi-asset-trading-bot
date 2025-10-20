@@ -1,0 +1,77 @@
+# Strategy Weights Configuration
+# ==============================
+# Confidence multipliers for strategy-pair combinations
+# 
+# How it works:
+# - All strategies run on all pairs
+# - Confidence scores are multiplied by these weights
+# - Only signals above threshold (default 65%) are taken
+# - Weights range: 0.5 (poor fit) to 1.5 (excellent fit)
+#
+# Example:
+#   Strategy confidence: 70%
+#   Weight: 1.2
+#   Final confidence: 70% × 1.2 = 84% → TAKE TRADE
+#
+# Leave empty to use intelligent defaults based on pair characteristics
+
+# === CUSTOM WEIGHTS (Optional) ===
+# Add your own weights here to override defaults
+# These will be merged with the intelligent defaults
+
+# Example custom weights:
+# EURUSD:
+#   trend_following: 1.3      # Boost trend following on EURUSD
+#   mean_reversion: 0.6       # Reduce mean reversion
+
+# GBPJPY:
+#   mean_reversion: 1.4       # Excellent for GBPJPY
+#   trend_following: 0.7      # Poor for GBPJPY
+
+# === PERFORMANCE-BASED UPDATES ===
+# After running for 2-4 weeks, the bot can auto-update these weights
+# based on actual performance using:
+#   optimizer.update_weights_from_performance(performance_data)
+#   optimizer.save_weights()
+
+# === INTELLIGENT DEFAULTS ===
+# If no custom weights are specified, the system uses these defaults:
+#
+# EURUSD (Low volatility, strong trends):
+#   trend_following: 1.25
+#   fibonacci: 1.15
+#   mean_reversion: 0.75
+#   breakout: 0.90
+#   momentum: 1.10
+#   multi_timeframe: 1.20
+#
+# GBPJPY (High volatility, choppy):
+#   trend_following: 0.75
+#   fibonacci: 0.85
+#   mean_reversion: 1.35
+#   breakout: 1.25
+#   momentum: 1.20
+#   multi_timeframe: 0.80
+#
+# BTCUSD (Crypto, high volatility):
+#   momentum_breakout: 1.30
+#   support_resistance: 1.20
+#   trend_following: 1.25
+#   volatility_breakout: 1.15
+#
+# XAUUSD (Gold, safe-haven):
+#   safe_haven_flow: 1.30
+#   usd_correlation: 1.25
+#   technical_breakout: 1.15
+#
+# See src/core/strategy_optimizer.py for complete defaults
+
+# === START YOUR CUSTOM WEIGHTS BELOW ===
+
+# Example: Boost trend following on major pairs
+# EURUSD:
+#   trend_following: 1.30
+
+# GBPUSD:
+#   trend_following: 1.25
+
