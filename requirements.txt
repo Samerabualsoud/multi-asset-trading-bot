@@ -7,9 +7,6 @@ pandas>=2.0.0
 numpy>=1.24.0
 pyyaml>=6.0
 
-# Technical analysis
-ta-lib>=0.4.28  # Optional: for additional indicators
-
 # Logging and monitoring
 colorlog>=6.7.0
 
