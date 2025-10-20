@@ -7,7 +7,7 @@ Enhanced versions of 6 trading strategies with intelligent risk management
 import pandas as pd
 import numpy as np
 from typing import Tuple, Optional, Dict
-from indicators import TechnicalIndicators as TI
+from indicators import EnhancedTechnicalIndicators as TI
 from market_analyzer import MarketAnalyzer
 
 
