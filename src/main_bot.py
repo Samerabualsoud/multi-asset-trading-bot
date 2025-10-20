@@ -159,10 +159,24 @@ class MultiAssetTradingBot:
         # Calculate position size (simple: 0.01 lots)
         lot = 0.01
         
-        # Calculate SL/TP (simple: 50 pips)
+        # Calculate SL/TP properly
         point = symbol_info.point
-        sl_distance = 50 * 10 * point  # 50 pips
-        tp_distance = 100 * 10 * point  # 100 pips
+        digits = symbol_info.digits
+        
+        # Determine pip size based on digits
+        if digits == 5 or digits == 3:
+            # 5-digit broker (e.g., 1.23456) or 3-digit (JPY)
+            pip_size = point * 10
+        else:
+            # 4-digit broker (e.g., 1.2345) or 2-digit (JPY)
+            pip_size = point
+        
+        # Set SL/TP in pips (not points!)
+        sl_pips = 30  # 30 pips stop loss
+        tp_pips = 60  # 60 pips take profit (1:2 ratio)
+        
+        sl_distance = sl_pips * pip_size
+        tp_distance = tp_pips * pip_size
         
         if signal == 'BUY':
             order_type = mt5.ORDER_TYPE_BUY
@@ -202,8 +216,9 @@ class MultiAssetTradingBot:
         
         logger.info(f"✅ Order executed: {signal} {lot} {symbol}")
         logger.info(f"   Entry: {price:.5f}")
-        logger.info(f"   SL: {sl:.5f}")
-        logger.info(f"   TP: {tp:.5f}")
+        logger.info(f"   SL: {sl:.5f} ({sl_pips} pips)")
+        logger.info(f"   TP: {tp:.5f} ({tp_pips} pips)")
+        logger.info(f"   Risk:Reward = 1:{tp_pips/sl_pips:.1f}")
         
         return True
     
