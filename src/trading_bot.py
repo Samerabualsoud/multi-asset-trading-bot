@@ -10,20 +10,29 @@ import numpy as np
 import logging
 import time
 import yaml
+import sys
+import os
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
+# Add paths for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src', 'core'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src', 'strategies'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src', 'utils'))
+
 # Import all modules
-from core.indicators import EnhancedTechnicalIndicators
-from core.market_analyzer import MarketAnalyzer
-from core.risk_manager import EnhancedRiskManager
-from core.position_monitor import PositionMonitor
-from core.strategy_optimizer import StrategyOptimizer
-from strategies.forex_strategies import ImprovedTradingStrategies
-from strategies.crypto_strategies import CryptoTradingStrategies
-from strategies.metals_strategies import MetalsTradingStrategies
-from utils.asset_detector import detect_asset_type
-from utils.config_validator import ConfigValidator
+from indicators import EnhancedTechnicalIndicators
+from market_analyzer import MarketAnalyzer
+from risk_manager import EnhancedRiskManager
+from position_monitor import PositionMonitor
+from strategy_optimizer import StrategyOptimizer
+from forex_strategies import ImprovedTradingStrategies
+from crypto_strategies import CryptoTradingStrategies
+from metals_strategies import MetalsTradingStrategies
+from asset_detector import detect_asset_type
+from config_validator import ConfigValidator
 
 # Setup logging
 logging.basicConfig(
