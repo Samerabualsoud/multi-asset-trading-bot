@@ -156,8 +156,30 @@ class MultiAssetTradingBot:
             logger.error(f"❌ Symbol info not available: {symbol}")
             return False
         
-        # Calculate position size (simple: 0.01 lots)
-        lot = 0.01
+        # Get account info
+        account_info = mt5.account_info()
+        if account_info is None:
+            logger.error(f"❌ Failed to get account info")
+            return False
+        
+        account_balance = account_info.balance
+        
+        # Get risk percentage from config (default 0.5%)
+        risk_percent = self.config.get('risk_management', {}).get('risk_per_trade', 0.005)
+        
+        # Calculate position size based on account balance and risk
+        # Formula: Lot Size = (Account Balance × Risk %) / (SL in pips × Pip Value)
+        
+        # Get contract size (standard lot size)
+        contract_size = symbol_info.trade_contract_size
+        
+        # Calculate pip value for 1 standard lot
+        # For most pairs: pip_value = contract_size × pip_size
+        # For JPY pairs and others, we need to adjust
+        if 'JPY' in symbol:
+            pip_value_per_lot = contract_size * pip_size / price
+        else:
+            pip_value_per_lot = contract_size * pip_size
         
         # Calculate SL/TP properly
         point = symbol_info.point
@@ -177,6 +199,25 @@ class MultiAssetTradingBot:
         
         sl_distance = sl_pips * pip_size
         tp_distance = tp_pips * pip_size
+        
+        # Calculate lot size based on risk
+        risk_amount = account_balance * risk_percent
+        lot = risk_amount / (sl_pips * pip_value_per_lot)
+        
+        # Round to broker's lot step (usually 0.01)
+        lot_step = symbol_info.volume_step
+        lot = round(lot / lot_step) * lot_step
+        
+        # Apply min/max limits
+        min_lot = symbol_info.volume_min
+        max_lot = symbol_info.volume_max
+        lot = max(min_lot, min(lot, max_lot))
+        
+        logger.info(f"📊 Position sizing:")
+        logger.info(f"   Account balance: ${account_balance:,.2f}")
+        logger.info(f"   Risk per trade: {risk_percent*100:.2f}% = ${risk_amount:,.2f}")
+        logger.info(f"   SL: {sl_pips} pips")
+        logger.info(f"   Calculated lot size: {lot:.2f}")
         
         if signal == 'BUY':
             order_type = mt5.ORDER_TYPE_BUY
