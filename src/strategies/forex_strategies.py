@@ -89,7 +89,7 @@ class ImprovedTradingStrategies:
                 
                 # Calculate structure-based SL/TP
                 sl_pips, tp_pips = self.market_analyzer.calculate_structure_based_sl_tp(
-                    df_m5, action, curr_price, curr_atr, pip_size, 'trend'
+                    df_m5, action, curr_price, curr_atr, pip_size, 'trend', symbol
                 )
                 
                 # Check if trailing stop should be used
@@ -175,7 +175,7 @@ class ImprovedTradingStrategies:
                 
                 # Fibonacci retracement is a trend continuation strategy
                 sl_pips, tp_pips = self.market_analyzer.calculate_structure_based_sl_tp(
-                    df_m5, action, curr_price, curr_atr, pip_size, 'trend'
+                    df_m5, action, curr_price, curr_atr, pip_size, 'trend', symbol
                 )
                 
                 return action, confidence, {
@@ -240,7 +240,7 @@ class ImprovedTradingStrategies:
                 
                 # Mean reversion needs tighter SL/TP
                 sl_pips, tp_pips = self.market_analyzer.calculate_structure_based_sl_tp(
-                    df_m5, action, curr_price, curr_atr, pip_size, 'reversion'
+                    df_m5, action, curr_price, curr_atr, pip_size, 'reversion', symbol
                 )
                 
                 return action, confidence, {
@@ -310,7 +310,7 @@ class ImprovedTradingStrategies:
                 
                 # Breakout strategy with trailing stops
                 sl_pips, tp_pips = self.market_analyzer.calculate_structure_based_sl_tp(
-                    df_m5, action, curr_price, curr_atr, pip_size, 'breakout'
+                    df_m5, action, curr_price, curr_atr, pip_size, 'breakout', symbol
                 )
                 
                 # Always use trailing stops for breakouts
@@ -383,7 +383,7 @@ class ImprovedTradingStrategies:
                 
                 # Momentum scalping with tight parameters
                 sl_pips, tp_pips = self.market_analyzer.calculate_structure_based_sl_tp(
-                    df_m5, action, curr_price, curr_atr, pip_size, 'momentum'
+                    df_m5, action, curr_price, curr_atr, pip_size, 'momentum', symbol
                 )
                 
                 return action, confidence, {
@@ -466,7 +466,7 @@ class ImprovedTradingStrategies:
                 
                 # High confidence = wider parameters + trailing stops
                 sl_pips, tp_pips = self.market_analyzer.calculate_structure_based_sl_tp(
-                    df_m5, action, curr_price, curr_atr, pip_size, 'confluence'
+                    df_m5, action, curr_price, curr_atr, pip_size, 'confluence', symbol
                 )
                 
                 # Use trailing stops for high confidence signals

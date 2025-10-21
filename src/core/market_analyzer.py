@@ -279,7 +279,8 @@ class MarketAnalyzer:
     
     def calculate_structure_based_sl_tp(self, df: pd.DataFrame, action: str,
                                        entry_price: float, atr: float,
-                                       pip_size: float, strategy_type: str) -> Tuple[float, float]:
+                                       pip_size: float, strategy_type: str,
+                                       symbol: str = '') -> Tuple[float, float]:
         """
         Calculate SL/TP based on market structure, not just ATR
         
@@ -291,6 +292,28 @@ class MarketAnalyzer:
             
             # Get dynamic ATR multipliers
             sl_mult, tp_mult = self.calculate_dynamic_atr_multiplier(df, strategy_type)
+            
+            # CRITICAL FIX: Pair-specific multiplier adjustments
+            if 'CHF' in symbol:
+                # CHF needs wider stops due to SNB interventions and higher volatility
+                sl_mult *= 1.4  # 40% wider stops for CHF
+                logger.info(f"[PAIR-ADJUST] CHF detected: SL multiplier increased to {sl_mult:.2f}x")
+            elif 'JPY' in symbol:
+                # JPY needs wider stops, especially during London/US sessions
+                from datetime import datetime, timezone
+                hour_utc = datetime.now(timezone.utc).hour
+                
+                if 0 <= hour_utc < 8:
+                    # Asian session: Normal stops
+                    sl_mult *= 1.2  # 20% wider
+                elif 8 <= hour_utc < 16:
+                    # London session: Much wider stops
+                    sl_mult *= 1.5  # 50% wider for London volatility
+                else:
+                    # US session: Moderately wider
+                    sl_mult *= 1.3  # 30% wider
+                
+                logger.info(f"[PAIR-ADJUST] JPY detected (hour {hour_utc} UTC): SL multiplier increased to {sl_mult:.2f}x")
             
             # Base ATR calculation
             base_sl_pips = (atr / pip_size) * sl_mult

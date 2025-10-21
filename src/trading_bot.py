@@ -213,12 +213,7 @@ class CompleteMultiAssetBot:
                                 symbol, strategy_name, confidence
                             )
                             
-                            # SAFETY: Higher confidence required for problematic pairs
-                            min_confidence = 65
-                            if 'CHF' in symbol or 'JPY' in symbol:
-                                min_confidence = 70  # Require 70% for CHF/JPY pairs
-                            
-                            if weighted_confidence >= min_confidence:
+                            if weighted_confidence >= 65:
                                 opportunities.append({
                                     'symbol': symbol,
                                     'signal': signal,
@@ -254,12 +249,7 @@ class CompleteMultiAssetBot:
                                 symbol, strategy_name, confidence
                             )
                             
-                            # SAFETY: Higher confidence required for problematic pairs
-                            min_confidence = 65
-                            if 'CHF' in symbol or 'JPY' in symbol:
-                                min_confidence = 70  # Require 70% for CHF/JPY pairs
-                            
-                            if weighted_confidence >= min_confidence:
+                            if weighted_confidence >= 65:
                                 opportunities.append({
                                     'symbol': symbol,
                                     'signal': signal,
@@ -296,12 +286,7 @@ class CompleteMultiAssetBot:
                                 symbol, strategy_name, confidence
                             )
                             
-                            # SAFETY: Higher confidence required for problematic pairs
-                            min_confidence = 65
-                            if 'CHF' in symbol or 'JPY' in symbol:
-                                min_confidence = 70  # Require 70% for CHF/JPY pairs
-                            
-                            if weighted_confidence >= min_confidence:
+                            if weighted_confidence >= 65:
                                 opportunities.append({
                                     'symbol': symbol,
                                     'signal': signal,
@@ -351,14 +336,28 @@ class CompleteMultiAssetBot:
                 logger.error(f"[ERROR] Symbol info not available: {symbol}")
                 return False
             
-            # Get symbol info first for pip calculation
+            # CRITICAL FIX: Correct pip calculation for JPY pairs
             point = symbol_info.point
             digits = symbol_info.digits
             
-            if digits == 5 or digits == 3:
-                pip_size = point * 10
+            # JPY pairs ALWAYS use 0.01 as pip, regardless of digits
+            if 'JPY' in symbol:
+                if digits == 3:
+                    pip_size = 0.01  # 123.45 -> pip = 0.01
+                elif digits == 5:
+                    pip_size = 0.01  # 150.123 -> pip = 0.01 (NOT 0.0001!)
+                else:
+                    pip_size = point * 10  # Fallback
             else:
-                pip_size = point
+                # Standard forex pairs
+                if digits == 5:
+                    pip_size = point * 10  # 1.23456 -> pip = 0.0001
+                elif digits == 4:
+                    pip_size = point  # 1.2345 -> pip = 0.0001
+                elif digits == 3:
+                    pip_size = point * 10  # Rare case
+                else:
+                    pip_size = point  # Fallback
             
             # Extract SL/TP from strategy details
             sl_price = details.get('sl')
@@ -402,23 +401,6 @@ class CompleteMultiAssetBot:
                 if (price - tp_price) < min_distance:
                     tp_price = round(price - min_distance, digits)
                     logger.warning(f"[FIX] Adjusted TP to meet broker minimum distance: {tp_price}")
-            
-            # SAFETY: Check pair-specific exposure limits (CHF/JPY risk management)
-            current_positions = mt5.positions_get()
-            if current_positions:
-                # Count existing CHF and JPY positions
-                chf_count = sum(1 for p in current_positions if 'CHF' in p.symbol)
-                jpy_count = sum(1 for p in current_positions if 'JPY' in p.symbol)
-                
-                # Limit CHF exposure (max 1 position)
-                if 'CHF' in symbol and chf_count >= 1:
-                    logger.warning(f"[SKIP] CHF exposure limit reached ({chf_count} positions). Skipping {symbol}")
-                    return False
-                
-                # Limit JPY exposure (max 2 positions)
-                if 'JPY' in symbol and jpy_count >= 2:
-                    logger.warning(f"[SKIP] JPY exposure limit reached ({jpy_count} positions). Skipping {symbol}")
-                    return False
             
             # Calculate position size using risk manager
             account_info = mt5.account_info()
