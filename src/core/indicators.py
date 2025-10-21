@@ -432,3 +432,53 @@ class EnhancedTechnicalIndicators:
             middle = pd.Series([df['close'].iloc[-1]] * len(df), index=df.index)
             return middle, middle, middle
 
+
+    @staticmethod
+    def add_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Add all common technical indicators to dataframe
+        
+        Args:
+            df: DataFrame with OHLCV data
+            
+        Returns:
+            DataFrame with all indicators added
+        """
+        try:
+            # Moving averages
+            df['ema_20'] = EnhancedTechnicalIndicators.ema(df['close'], 20)
+            df['ema_50'] = EnhancedTechnicalIndicators.ema(df['close'], 50)
+            df['ema_200'] = EnhancedTechnicalIndicators.ema(df['close'], 200)
+            df['sma_20'] = EnhancedTechnicalIndicators.sma(df['close'], 20)
+            df['sma_50'] = EnhancedTechnicalIndicators.sma(df['close'], 50)
+            
+            # Momentum indicators
+            df['rsi'] = EnhancedTechnicalIndicators.rsi(df['close'], 14)
+            macd_line, signal_line, histogram = EnhancedTechnicalIndicators.macd(df['close'])
+            df['macd'] = macd_line
+            df['macd_signal'] = signal_line
+            df['macd_histogram'] = histogram
+            
+            # Volatility indicators
+            upper_bb, middle_bb, lower_bb = EnhancedTechnicalIndicators.bollinger_bands(df['close'], 20, 2.0)
+            df['bb_upper'] = upper_bb
+            df['bb_middle'] = middle_bb
+            df['bb_lower'] = lower_bb
+            df['atr'] = EnhancedTechnicalIndicators.atr(df, 14)
+            
+            # Trend indicators
+            df['adx'] = EnhancedTechnicalIndicators.adx(df, 14)
+            
+            # Oscillators
+            stoch_k, stoch_d = EnhancedTechnicalIndicators.stochastic(df, 14, 3)
+            df['stoch_k'] = stoch_k
+            df['stoch_d'] = stoch_d
+            df['cci'] = EnhancedTechnicalIndicators.cci(df, 20)
+            df['williams_r'] = EnhancedTechnicalIndicators.williams_r(df, 14)
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error adding indicators: {e}")
+            return df
+

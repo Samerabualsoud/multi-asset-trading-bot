@@ -65,7 +65,7 @@ class CompleteMultiAssetBot:
         is_valid, errors = validator.validate(self.config)
         if not is_valid:
             for error in errors:
-                logger.error(f"❌ Config error: {error}")
+                logger.error(f"[ERROR] Config error: {error}")
             raise ValueError("Invalid configuration")
         
         # Initialize components
@@ -82,21 +82,21 @@ class CompleteMultiAssetBot:
         
         self.running = False
         
-        logger.info("✅ Bot initialized successfully")
+        logger.info("[OK] Bot initialized successfully")
     
     def load_config(self, config_path):
         """Load configuration"""
         try:
             with open(config_path, 'r') as f:
                 config = yaml.safe_load(f)
-            logger.info(f"✅ Configuration loaded from {config_path}")
+            logger.info(f"[OK] Configuration loaded from {config_path}")
             return config
         except FileNotFoundError:
-            logger.error(f"❌ Config file not found: {config_path}")
+            logger.error(f"[ERROR] Config file not found: {config_path}")
             logger.info("💡 Create config/config.yaml from config/config.example.yaml")
             raise
         except Exception as e:
-            logger.error(f"❌ Error loading config: {e}")
+            logger.error(f"[ERROR] Error loading config: {e}")
             raise
     
     def connect_mt5(self):
@@ -104,7 +104,7 @@ class CompleteMultiAssetBot:
         try:
             # Initialize MT5
             if not mt5.initialize():
-                logger.error(f"❌ MT5 initialization failed: {mt5.last_error()}")
+                logger.error(f"[ERROR] MT5 initialization failed: {mt5.last_error()}")
                 return False
             
             # Login
@@ -113,17 +113,17 @@ class CompleteMultiAssetBot:
             server = self.config.get('mt5_server')
             
             if not mt5.login(login, password, server):
-                logger.error(f"❌ MT5 login failed: {mt5.last_error()}")
+                logger.error(f"[ERROR] MT5 login failed: {mt5.last_error()}")
                 return False
             
             # Get account info
             account_info = mt5.account_info()
             if account_info is None:
-                logger.error("❌ Failed to get account info")
+                logger.error("[ERROR] Failed to get account info")
                 return False
             
             logger.info("=" * 60)
-            logger.info("✅ Connected to MT5")
+            logger.info("[OK] Connected to MT5")
             logger.info(f"   Account: {account_info.login}")
             logger.info(f"   Server: {account_info.server}")
             logger.info(f"   Balance: ${account_info.balance:,.2f}")
@@ -134,7 +134,7 @@ class CompleteMultiAssetBot:
             return True
             
         except Exception as e:
-            logger.error(f"❌ MT5 connection error: {e}")
+            logger.error(f"[ERROR] MT5 connection error: {e}")
             return False
     
     def get_market_data(self, symbol: str, timeframe: int, bars: int = 500) -> Optional[pd.DataFrame]:
@@ -153,7 +153,7 @@ class CompleteMultiAssetBot:
             return df
             
         except Exception as e:
-            logger.error(f"❌ Error getting data for {symbol}: {e}")
+            logger.error(f"[ERROR] Error getting data for {symbol}: {e}")
             return None
     
     def analyze_symbol(self, symbol: str) -> List[Dict]:
@@ -162,7 +162,7 @@ class CompleteMultiAssetBot:
             # Detect asset type
             asset_type = detect_asset_type(symbol)
             
-            logger.info(f"🔍 Analyzing {symbol} ({asset_type})...")
+            logger.info(f"[ANALYZING] Analyzing {symbol} ({asset_type})...")
             
             # Get data for multiple timeframes
             df_m5 = self.get_market_data(symbol, mt5.TIMEFRAME_M5, 500)
@@ -222,9 +222,9 @@ class CompleteMultiAssetBot:
                                     'details': details,
                                     'asset_type': asset_type
                                 })
-                                logger.info(f"   ✅ {strategy_name}: {signal} ({weighted_confidence:.1f}%)")
+                                logger.info(f"   [OK] {strategy_name}: {signal} ({weighted_confidence:.1f}%)")
                     except Exception as e:
-                        logger.error(f"   ❌ Error in {strategy_name}: {e}")
+                        logger.error(f"   [ERROR] Error in {strategy_name}: {e}")
             
             elif asset_type == 'crypto':
                 # Run crypto strategies
@@ -256,9 +256,9 @@ class CompleteMultiAssetBot:
                                     'details': details,
                                     'asset_type': asset_type
                                 })
-                                logger.info(f"   ✅ {strategy_name}: {signal} ({weighted_confidence:.1f}%)")
+                                logger.info(f"   [OK] {strategy_name}: {signal} ({weighted_confidence:.1f}%)")
                     except Exception as e:
-                        logger.error(f"   ❌ Error in {strategy_name}: {e}")
+                        logger.error(f"   [ERROR] Error in {strategy_name}: {e}")
             
             elif asset_type == 'metal':
                 # Run metals strategies
@@ -293,14 +293,14 @@ class CompleteMultiAssetBot:
                                     'details': details,
                                     'asset_type': asset_type
                                 })
-                                logger.info(f"   ✅ {strategy_name}: {signal} ({weighted_confidence:.1f}%)")
+                                logger.info(f"   [OK] {strategy_name}: {signal} ({weighted_confidence:.1f}%)")
                     except Exception as e:
-                        logger.error(f"   ❌ Error in {strategy_name}: {e}")
+                        logger.error(f"   [ERROR] Error in {strategy_name}: {e}")
             
             return opportunities
             
         except Exception as e:
-            logger.error(f"❌ Error analyzing {symbol}: {e}")
+            logger.error(f"[ERROR] Error analyzing {symbol}: {e}")
             return []
     
     def execute_trade(self, opportunity: Dict) -> bool:
@@ -313,7 +313,7 @@ class CompleteMultiAssetBot:
             details = opportunity['details']
             
             logger.info("=" * 60)
-            logger.info(f"💼 Executing Trade")
+            logger.info(f"[TRADE] Executing Trade")
             logger.info(f"   Symbol: {symbol}")
             logger.info(f"   Signal: {signal}")
             logger.info(f"   Strategy: {strategy}")
@@ -323,7 +323,7 @@ class CompleteMultiAssetBot:
             # Get current price
             tick = mt5.symbol_info_tick(symbol)
             if tick is None:
-                logger.error(f"❌ Failed to get tick for {symbol}")
+                logger.error(f"[ERROR] Failed to get tick for {symbol}")
                 return False
             
             price = tick.ask if signal == 'BUY' else tick.bid
@@ -331,7 +331,7 @@ class CompleteMultiAssetBot:
             # Get symbol info
             symbol_info = mt5.symbol_info(symbol)
             if symbol_info is None:
-                logger.error(f"❌ Symbol info not available: {symbol}")
+                logger.error(f"[ERROR] Symbol info not available: {symbol}")
                 return False
             
             # Extract SL/TP from strategy details
@@ -339,13 +339,13 @@ class CompleteMultiAssetBot:
             tp_price = details.get('tp')
             
             if sl_price is None or tp_price is None:
-                logger.error(f"❌ Missing SL/TP in strategy details")
+                logger.error(f"[ERROR] Missing SL/TP in strategy details")
                 return False
             
             # Calculate position size using risk manager
             account_info = mt5.account_info()
             if account_info is None:
-                logger.error(f"❌ Failed to get account info")
+                logger.error(f"[ERROR] Failed to get account info")
                 return False
             
             # Calculate SL distance in pips
@@ -376,7 +376,7 @@ class CompleteMultiAssetBot:
             lot = round(lot / lot_step) * lot_step
             lot = max(symbol_info.volume_min, min(lot, symbol_info.volume_max))
             
-            logger.info(f"📊 Position Sizing:")
+            logger.info(f"[INFO] Position Sizing:")
             logger.info(f"   Account: ${account_info.balance:,.2f}")
             logger.info(f"   Risk: {risk_percent*100:.2f}% = ${risk_amount:,.2f}")
             logger.info(f"   SL distance: {sl_distance_pips:.1f} pips")
@@ -407,17 +407,17 @@ class CompleteMultiAssetBot:
             result = mt5.order_send(request)
             
             if result is None:
-                logger.error(f"❌ Order failed: {mt5.last_error()}")
+                logger.error(f"[ERROR] Order failed: {mt5.last_error()}")
                 return False
             
             if result.retcode != mt5.TRADE_RETCODE_DONE:
-                logger.error(f"❌ Order failed: {result.comment}")
+                logger.error(f"[ERROR] Order failed: {result.comment}")
                 return False
             
             tp_distance_pips = abs(price - tp_price) / pip_size
             rr_ratio = tp_distance_pips / sl_distance_pips
             
-            logger.info("✅ Order Executed Successfully!")
+            logger.info("[OK] Order Executed Successfully!")
             logger.info(f"   Entry: {price:.5f}")
             logger.info(f"   SL: {sl_price:.5f} ({sl_distance_pips:.1f} pips)")
             logger.info(f"   TP: {tp_price:.5f} ({tp_distance_pips:.1f} pips)")
@@ -427,7 +427,7 @@ class CompleteMultiAssetBot:
             return True
             
         except Exception as e:
-            logger.error(f"❌ Error executing trade: {e}")
+            logger.error(f"[ERROR] Error executing trade: {e}")
             return False
     
     def run(self):
@@ -436,16 +436,16 @@ class CompleteMultiAssetBot:
         
         # Connect to MT5
         if not self.connect_mt5():
-            logger.error("❌ Failed to connect to MT5. Exiting.")
+            logger.error("[ERROR] Failed to connect to MT5. Exiting.")
             return
         
         # Get symbols
         symbols = self.config.get('symbols', [])
         if not symbols:
-            logger.error("❌ No symbols configured. Exiting.")
+            logger.error("[ERROR] No symbols configured. Exiting.")
             return
         
-        logger.info(f"✅ Trading {len(symbols)} symbols: {', '.join(symbols)}")
+        logger.info(f"[OK] Trading {len(symbols)} symbols: {', '.join(symbols)}")
         
         # Main loop
         self.running = True
@@ -457,13 +457,13 @@ class CompleteMultiAssetBot:
                 iteration += 1
                 logger.info("")
                 logger.info("=" * 60)
-                logger.info(f"🔄 Scan Iteration #{iteration} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                logger.info(f"[SCAN] Scan Iteration #{iteration} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                 logger.info("=" * 60)
                 
                 # Monitor existing positions
                 positions = mt5.positions_get()
                 if positions and len(positions) > 0:
-                    logger.info(f"📊 Monitoring {len(positions)} open positions...")
+                    logger.info(f"[INFO] Monitoring {len(positions)} open positions...")
                     self.position_monitor.monitor_positions()
                 
                 # Check if we can open new positions
@@ -481,7 +481,7 @@ class CompleteMultiAssetBot:
                         all_opportunities.extend(opportunities)
                     
                     if not all_opportunities:
-                        logger.info("ℹ️  No trading opportunities found")
+                        logger.info("[INFO]  No trading opportunities found")
                     else:
                         logger.info(f"📈 Found {len(all_opportunities)} opportunities")
                         
@@ -498,13 +498,13 @@ class CompleteMultiAssetBot:
                                 time.sleep(2)  # Brief pause between trades
                 
                 # Wait for next scan
-                logger.info(f"⏳ Next scan in {scan_interval} seconds...")
+                logger.info(f"[WAIT] Next scan in {scan_interval} seconds...")
                 time.sleep(scan_interval)
                 
         except KeyboardInterrupt:
             logger.info("⚠️  Bot stopped by user")
         except Exception as e:
-            logger.error(f"❌ Error in main loop: {e}")
+            logger.error(f"[ERROR] Error in main loop: {e}")
             import traceback
             traceback.print_exc()
         finally:
@@ -516,7 +516,7 @@ class CompleteMultiAssetBot:
         logger.info("🛑 Shutting down bot...")
         logger.info("=" * 60)
         mt5.shutdown()
-        logger.info("✅ Bot stopped successfully")
+        logger.info("[OK] Bot stopped successfully")
 
 
 def main():
@@ -536,7 +536,7 @@ def main():
         bot = CompleteMultiAssetBot()
         bot.run()
     except Exception as e:
-        logger.error(f"❌ Fatal error: {e}")
+        logger.error(f"[ERROR] Fatal error: {e}")
         import traceback
         traceback.print_exc()
         return 1
