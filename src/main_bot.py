@@ -104,9 +104,32 @@ class MultiAssetTradingBot:
         
         return valid_symbols
     
+    def get_session_info(self):
+        """Get current trading session and required confidence threshold"""
+        from datetime import datetime, timezone
+        
+        now_utc = datetime.now(timezone.utc)
+        hour = now_utc.hour
+        
+        # Define sessions with confidence thresholds
+        if 0 <= hour < 8:
+            return 'asian', 0.7, 65  # session, volatility_mult, min_confidence
+        elif 8 <= hour < 13:
+            return 'london', 1.2, 75  # Higher confidence required
+        elif 13 <= hour < 16:
+            return 'overlap', 1.5, 80  # Highest confidence required
+        elif 16 <= hour < 21:
+            return 'newyork', 1.1, 75
+        else:
+            return 'asian', 0.7, 65
+    
     def scan_opportunities(self, symbols):
         """Scan for trading opportunities"""
         logger.info("🔍 Scanning for opportunities...")
+        
+        # Get current session info
+        session, vol_mult, min_confidence = self.get_session_info()
+        logger.info(f"🌍 Current session: {session.upper()} (min confidence: {min_confidence}%)")
         
         opportunities = []
         
@@ -162,6 +185,15 @@ class MultiAssetTradingBot:
             logger.error(f"❌ Failed to get account info")
             return False
         
+        # SAFETY FIX: Check margin level before trading
+        margin_level = account_info.margin_level if account_info.margin_level else 0
+        min_margin_level = self.config.get('risk_management', {}).get('min_margin_level', 700)
+        
+        if margin_level > 0 and margin_level < min_margin_level:
+            logger.warning(f"⚠️  Margin level too low: {margin_level:.2f}% (minimum: {min_margin_level}%)")
+            logger.warning(f"⚠️  Skipping trade to protect account")
+            return False
+        
         account_balance = account_info.balance
         
         # Get risk percentage from config (default 0.5%)
@@ -170,32 +202,91 @@ class MultiAssetTradingBot:
         # Calculate position size based on account balance and risk
         # Formula: Lot Size = (Account Balance × Risk %) / (SL in pips × Pip Value)
         
-        # Get contract size (standard lot size)
-        contract_size = symbol_info.trade_contract_size
-        
-        # Calculate pip value for 1 standard lot
-        # For most pairs: pip_value = contract_size × pip_size
-        # For JPY pairs and others, we need to adjust
-        if 'JPY' in symbol:
-            pip_value_per_lot = contract_size * pip_size / price
-        else:
-            pip_value_per_lot = contract_size * pip_size
-        
-        # Calculate SL/TP properly
+        # ULTRA-PRECISE CALCULATIONS: Define pip_size BEFORE using it
         point = symbol_info.point
         digits = symbol_info.digits
         
-        # Determine pip size based on digits
-        if digits == 5 or digits == 3:
-            # 5-digit broker (e.g., 1.23456) or 3-digit (JPY)
-            pip_size = point * 10
+        # Determine pip size with EXTREME precision based on asset type and digits
+        if 'JPY' in symbol:
+            # JPY pairs: pip is 0.01 (2nd decimal for 3-digit, 3rd for 5-digit)
+            if digits == 3:
+                pip_size = 0.01  # 123.45 -> pip = 0.01
+            else:  # digits == 5
+                pip_size = 0.001  # 123.456 -> pip = 0.001 but we use 0.01 for standard pip
+                pip_size = point * 10
+        elif 'XAU' in symbol or 'GOLD' in symbol:
+            # Gold: pip is usually 0.1 (e.g., 1850.5)
+            pip_size = 0.1 if digits == 2 else (0.01 if digits == 3 else point * 10)
+        elif 'XAG' in symbol or 'SILVER' in symbol:
+            # Silver: pip is usually 0.01
+            pip_size = 0.01 if digits == 3 else (0.001 if digits == 4 else point * 10)
+        elif 'OIL' in symbol or 'WTI' in symbol or 'BRENT' in symbol:
+            # Oil: pip is usually 0.01
+            pip_size = 0.01 if digits == 2 else (0.001 if digits == 3 else point * 10)
+        elif 'BTC' in symbol or 'ETH' in symbol or 'LTC' in symbol:
+            # Crypto: varies greatly, use point-based calculation
+            if digits <= 2:
+                pip_size = 1.0  # BTC might be 50000.00
+            elif digits == 3:
+                pip_size = 0.1
+            else:
+                pip_size = point * 10
         else:
-            # 4-digit broker (e.g., 1.2345) or 2-digit (JPY)
-            pip_size = point
+            # Standard forex pairs
+            if digits == 5:
+                pip_size = point * 10  # 1.23456 -> pip = 0.0001
+            elif digits == 4:
+                pip_size = point  # 1.2345 -> pip = 0.0001
+            elif digits == 3:
+                pip_size = point * 10  # 123.456 (JPY) -> pip = 0.01
+            else:
+                pip_size = point  # Fallback
         
-        # Set SL/TP in pips (not points!)
-        sl_pips = 30  # 30 pips stop loss
-        tp_pips = 60  # 60 pips take profit (1:2 ratio)
+        # Get contract size (standard lot size)
+        contract_size = symbol_info.trade_contract_size
+        
+        # Calculate pip value for 1 standard lot with EXTREME precision
+        if 'JPY' in symbol:
+            # JPY pairs: pip value = (contract_size * pip_size) / current_price
+            pip_value_per_lot = (contract_size * pip_size) / price
+        elif 'XAU' in symbol or 'GOLD' in symbol:
+            # Gold: typically 100 oz contract, pip value depends on pip size
+            pip_value_per_lot = contract_size * pip_size
+        elif 'XAG' in symbol or 'SILVER' in symbol:
+            # Silver: typically 5000 oz contract
+            pip_value_per_lot = contract_size * pip_size
+        elif 'BTC' in symbol or 'ETH' in symbol:
+            # Crypto: use tick value from broker
+            pip_value_per_lot = symbol_info.trade_tick_value * (pip_size / point) if point > 0 else contract_size * pip_size
+        else:
+            # Standard forex: pip_value = contract_size * pip_size
+            pip_value_per_lot = contract_size * pip_size
+        
+        # Get session info for volatility-adjusted SL/TP
+        session, vol_mult, min_confidence = self.get_session_info()
+        
+        # Base SL/TP in pips - TIGHT and CONSERVATIVE
+        base_sl_pips = 25  # Tighter base stop loss
+        base_tp_pips = 50  # 1:2 risk-reward ratio
+        
+        # Apply session-based volatility adjustment (REDUCED multipliers for safety)
+        # Asian: 0.7x, London: 0.9x (reduced from 1.2x), Overlap: 1.0x (reduced from 1.5x)
+        if session == 'asian':
+            vol_mult = 0.7  # Keep tight during low volatility
+        elif session == 'london':
+            vol_mult = 0.9  # Slightly wider but controlled
+        elif session == 'overlap':
+            vol_mult = 1.0  # Normal, not excessive
+        elif session == 'newyork':
+            vol_mult = 0.9  # Controlled
+        
+        sl_pips = base_sl_pips * vol_mult
+        tp_pips = base_tp_pips * vol_mult
+        
+        logger.info(f"📐 Precise calculations for {symbol}:")
+        logger.info(f"   Digits: {digits}, Point: {point}, Pip size: {pip_size}")
+        logger.info(f"   Session: {session.upper()}, Vol multiplier: {vol_mult}x")
+        logger.info(f"   SL: {sl_pips:.1f} pips, TP: {tp_pips:.1f} pips")
         
         sl_distance = sl_pips * pip_size
         tp_distance = tp_pips * pip_size
@@ -311,14 +402,20 @@ class MultiAssetTradingBot:
                 max_positions = self.config.get('risk_management', {}).get('max_positions', 5)
                 current_positions = len(mt5.positions_get() or [])
                 
+                # Get session-specific minimum confidence
+                session, vol_mult, min_confidence = self.get_session_info()
+                
                 for opp in opportunities:
                     if current_positions >= max_positions:
                         logger.info(f"⚠️  Max positions ({max_positions}) reached")
                         break
                     
-                    if opp['confidence'] >= 65:
+                    # Use session-aware confidence threshold
+                    if opp['confidence'] >= min_confidence:
                         self.execute_trade(opp)
                         current_positions += 1
+                    else:
+                        logger.info(f"⚠️  Skipping {opp['symbol']}: confidence {opp['confidence']}% < required {min_confidence}%")
                 
                 # Monitor positions
                 self.monitor_positions()

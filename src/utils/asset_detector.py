@@ -19,6 +19,12 @@ def detect_asset_type(symbol: str) -> str:
     if symbol_upper.startswith('XAU') or symbol_upper.startswith('XAG') or 'GOLD' in symbol_upper or 'SILVER' in symbol_upper:
         return 'metal'
     
+    # Oil/Energy (FIXED: Added oil support)
+    if ('OIL' in symbol_upper or 'WTI' in symbol_upper or 'BRENT' in symbol_upper or 
+        symbol_upper.startswith('USO') or symbol_upper.startswith('UKO') or
+        'CRUDE' in symbol_upper or symbol_upper.startswith('XTI') or symbol_upper.startswith('XBR')):
+        return 'oil'
+    
     # Cryptocurrencies
     crypto_prefixes = ['BTC', 'ETH', 'LTC', 'XRP', 'BCH', 'EOS', 'ADA', 'DOT', 'LINK', 'UNI']
     for prefix in crypto_prefixes:
@@ -47,4 +53,9 @@ def is_crypto(symbol: str) -> bool:
 def is_metal(symbol: str) -> bool:
     """Check if symbol is metal"""
     return detect_asset_type(symbol) == 'metal'
+
+
+def is_oil(symbol: str) -> bool:
+    """Check if symbol is oil/energy"""
+    return detect_asset_type(symbol) == 'oil'
 

@@ -78,24 +78,24 @@ class CryptoTradingStrategies:
             action = None
             confidence = 0
             
-            # Bullish breakout
-            if curr_close > prev_high_20 and curr_volume_ratio > 2.0 and curr_rsi > 60 and h1_bullish:
+            # Bullish breakout (RELAXED: 1.5x volume instead of 2x, RSI > 55 instead of 60)
+            if curr_close > prev_high_20 and curr_volume_ratio > 1.5 and curr_rsi > 55 and h1_bullish:
                 action = 'BUY'
                 confidence = 70
                 
                 if curr_rsi > 70:
                     confidence += 10
-                if curr_volume_ratio > 3.0:
+                if curr_volume_ratio > 2.5:
                     confidence += 5
             
-            # Bearish breakout
-            elif curr_close < prev_low_20 and curr_volume_ratio > 2.0 and curr_rsi < 40 and not h1_bullish:
+            # Bearish breakout (RELAXED: 1.5x volume instead of 2x, RSI < 45 instead of 40)
+            elif curr_close < prev_low_20 and curr_volume_ratio > 1.5 and curr_rsi < 45 and not h1_bullish:
                 action = 'SELL'
                 confidence = 70
                 
                 if curr_rsi < 30:
                     confidence += 10
-                if curr_volume_ratio > 3.0:
+                if curr_volume_ratio > 2.5:
                     confidence += 5
             
             if action:
