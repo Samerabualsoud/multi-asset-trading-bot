@@ -200,8 +200,8 @@ class CompleteMultiAssetBot:
                         if strategy_name in ['mean_reversion', 'momentum']:
                             signal, confidence, details = strategy_func(df_m15, symbol)
                         elif strategy_name == 'multi_timeframe':
-                            if df_m5 is not None:
-                                signal, confidence, details = strategy_func(df_m5, df_m15, df_h1, symbol)
+                            if df_m5 is not None and df_h4 is not None:
+                                signal, confidence, details = strategy_func(df_m5, df_m15, df_h1, df_h4, symbol)
                             else:
                                 continue
                         else:
@@ -213,7 +213,12 @@ class CompleteMultiAssetBot:
                                 symbol, strategy_name, confidence
                             )
                             
-                            if weighted_confidence >= 65:
+                            # SAFETY: Higher confidence required for problematic pairs
+                            min_confidence = 65
+                            if 'CHF' in symbol or 'JPY' in symbol:
+                                min_confidence = 70  # Require 70% for CHF/JPY pairs
+                            
+                            if weighted_confidence >= min_confidence:
                                 opportunities.append({
                                     'symbol': symbol,
                                     'signal': signal,
@@ -239,6 +244,8 @@ class CompleteMultiAssetBot:
                     try:
                         if strategy_name == 'trend_following' and df_h4 is not None:
                             signal, confidence, details = strategy_func(df_m15, df_h1, df_h4, symbol)
+                        elif strategy_name == 'volatility_breakout':
+                            signal, confidence, details = strategy_func(df_h1, symbol)
                         else:
                             signal, confidence, details = strategy_func(df_m15, df_h1, symbol)
                         
@@ -247,7 +254,12 @@ class CompleteMultiAssetBot:
                                 symbol, strategy_name, confidence
                             )
                             
-                            if weighted_confidence >= 65:
+                            # SAFETY: Higher confidence required for problematic pairs
+                            min_confidence = 65
+                            if 'CHF' in symbol or 'JPY' in symbol:
+                                min_confidence = 70  # Require 70% for CHF/JPY pairs
+                            
+                            if weighted_confidence >= min_confidence:
                                 opportunities.append({
                                     'symbol': symbol,
                                     'signal': signal,
@@ -284,7 +296,12 @@ class CompleteMultiAssetBot:
                                 symbol, strategy_name, confidence
                             )
                             
-                            if weighted_confidence >= 65:
+                            # SAFETY: Higher confidence required for problematic pairs
+                            min_confidence = 65
+                            if 'CHF' in symbol or 'JPY' in symbol:
+                                min_confidence = 70  # Require 70% for CHF/JPY pairs
+                            
+                            if weighted_confidence >= min_confidence:
                                 opportunities.append({
                                     'symbol': symbol,
                                     'signal': signal,
@@ -361,6 +378,47 @@ class CompleteMultiAssetBot:
             if sl_price is None or tp_price is None:
                 logger.error(f"[ERROR] Missing SL/TP in strategy details")
                 return False
+            
+            # FIX: Round SL/TP to proper digits and ensure minimum distance
+            sl_price = round(sl_price, digits)
+            tp_price = round(tp_price, digits)
+            
+            # Check broker's minimum stop level
+            stops_level = symbol_info.trade_stops_level
+            min_distance = stops_level * point if stops_level > 0 else 10 * pip_size
+            
+            # Ensure SL/TP are far enough from current price
+            if signal == 'BUY':
+                if (price - sl_price) < min_distance:
+                    sl_price = round(price - min_distance, digits)
+                    logger.warning(f"[FIX] Adjusted SL to meet broker minimum distance: {sl_price}")
+                if (tp_price - price) < min_distance:
+                    tp_price = round(price + min_distance, digits)
+                    logger.warning(f"[FIX] Adjusted TP to meet broker minimum distance: {tp_price}")
+            else:  # SELL
+                if (sl_price - price) < min_distance:
+                    sl_price = round(price + min_distance, digits)
+                    logger.warning(f"[FIX] Adjusted SL to meet broker minimum distance: {sl_price}")
+                if (price - tp_price) < min_distance:
+                    tp_price = round(price - min_distance, digits)
+                    logger.warning(f"[FIX] Adjusted TP to meet broker minimum distance: {tp_price}")
+            
+            # SAFETY: Check pair-specific exposure limits (CHF/JPY risk management)
+            current_positions = mt5.positions_get()
+            if current_positions:
+                # Count existing CHF and JPY positions
+                chf_count = sum(1 for p in current_positions if 'CHF' in p.symbol)
+                jpy_count = sum(1 for p in current_positions if 'JPY' in p.symbol)
+                
+                # Limit CHF exposure (max 1 position)
+                if 'CHF' in symbol and chf_count >= 1:
+                    logger.warning(f"[SKIP] CHF exposure limit reached ({chf_count} positions). Skipping {symbol}")
+                    return False
+                
+                # Limit JPY exposure (max 2 positions)
+                if 'JPY' in symbol and jpy_count >= 2:
+                    logger.warning(f"[SKIP] JPY exposure limit reached ({jpy_count} positions). Skipping {symbol}")
+                    return False
             
             # Calculate position size using risk manager
             account_info = mt5.account_info()
