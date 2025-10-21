@@ -294,10 +294,44 @@ class MarketAnalyzer:
             sl_mult, tp_mult = self.calculate_dynamic_atr_multiplier(df, strategy_type)
             
             # CRITICAL FIX: Pair-specific multiplier adjustments
-            if 'CHF' in symbol:
-                # CHF needs wider stops due to SNB interventions and higher volatility
+            
+            # Exotic pairs: EXTREME volatility
+            if 'TRY' in symbol:
+                # Turkish Lira: EXTREME volatility (200-500 pips/day)
+                sl_mult *= 3.5  # 250% wider stops
+                logger.info(f"[PAIR-ADJUST] TRY (Turkish Lira) detected: SL multiplier increased to {sl_mult:.2f}x")
+            elif 'MXN' in symbol:
+                # Mexican Peso: Very high volatility (100-200 pips/day)
+                sl_mult *= 2.2  # 120% wider stops
+                logger.info(f"[PAIR-ADJUST] MXN (Mexican Peso) detected: SL multiplier increased to {sl_mult:.2f}x")
+            elif 'ZAR' in symbol:
+                # South African Rand: Very high volatility (150-250 pips/day)
+                sl_mult *= 2.5  # 150% wider stops
+                logger.info(f"[PAIR-ADJUST] ZAR (South African Rand) detected: SL multiplier increased to {sl_mult:.2f}x")
+            
+            # Crypto: EXTREME volatility
+            elif 'BTC' in symbol or 'ETH' in symbol or 'LTC' in symbol or 'XRP' in symbol:
+                sl_mult *= 2.5  # 150% wider stops for crypto
+                tp_mult *= 3.0  # Wider targets for crypto runs
+                logger.info(f"[PAIR-ADJUST] Crypto detected: SL multiplier increased to {sl_mult:.2f}x, TP to {tp_mult:.2f}x")
+            
+            # CHF pairs: High volatility
+            elif 'CHF' in symbol:
+                # CHF needs wider stops due to SNB interventions
                 sl_mult *= 1.4  # 40% wider stops for CHF
                 logger.info(f"[PAIR-ADJUST] CHF detected: SL multiplier increased to {sl_mult:.2f}x")
+            
+            # GBP pairs: Higher than average volatility
+            elif 'GBP' in symbol and 'JPY' in symbol:
+                # GBPJPY: Highest volatility major pair (90-130 pips/day)
+                sl_mult *= 1.6  # 60% wider stops
+                logger.info(f"[PAIR-ADJUST] GBPJPY detected: SL multiplier increased to {sl_mult:.2f}x")
+            elif 'GBP' in symbol:
+                # GBPUSD, EURGBP: Higher volatility (70-100 pips/day)
+                sl_mult *= 1.2  # 20% wider stops
+                logger.info(f"[PAIR-ADJUST] GBP detected: SL multiplier increased to {sl_mult:.2f}x")
+            
+            # JPY pairs: Session-aware stops
             elif 'JPY' in symbol:
                 # JPY needs wider stops, especially during London/US sessions
                 from datetime import datetime, timezone

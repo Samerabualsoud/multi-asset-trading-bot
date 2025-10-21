@@ -336,12 +336,21 @@ class CompleteMultiAssetBot:
                 logger.error(f"[ERROR] Symbol info not available: {symbol}")
                 return False
             
-            # CRITICAL FIX: Correct pip calculation for JPY pairs
+            # CRITICAL FIX: Correct pip calculation for all asset types
             point = symbol_info.point
             digits = symbol_info.digits
             
+            # Crypto: Use meaningful units ($1 for BTC/ETH, $0.1 for LTC, $0.01 for XRP)
+            if 'BTC' in symbol:
+                pip_size = 1.0  # $1 per pip for Bitcoin
+            elif 'ETH' in symbol:
+                pip_size = 1.0  # $1 per pip for Ethereum
+            elif 'LTC' in symbol:
+                pip_size = 0.1  # $0.10 per pip for Litecoin
+            elif 'XRP' in symbol or 'ADA' in symbol or 'DOT' in symbol:
+                pip_size = 0.01  # $0.01 per pip for low-price cryptos
             # JPY pairs ALWAYS use 0.01 as pip, regardless of digits
-            if 'JPY' in symbol:
+            elif 'JPY' in symbol:
                 if digits == 3:
                     pip_size = 0.01  # 123.45 -> pip = 0.01
                 elif digits == 5:
