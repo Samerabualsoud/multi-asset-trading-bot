@@ -334,9 +334,29 @@ class CompleteMultiAssetBot:
                 logger.error(f"[ERROR] Symbol info not available: {symbol}")
                 return False
             
+            # Get symbol info first for pip calculation
+            point = symbol_info.point
+            digits = symbol_info.digits
+            
+            if digits == 5 or digits == 3:
+                pip_size = point * 10
+            else:
+                pip_size = point
+            
             # Extract SL/TP from strategy details
             sl_price = details.get('sl')
             tp_price = details.get('tp')
+            sl_pips = details.get('sl_pips')
+            tp_pips = details.get('tp_pips')
+            
+            # If prices not provided, calculate from pips
+            if sl_price is None and sl_pips is not None:
+                if signal == 'BUY':
+                    sl_price = price - (sl_pips * pip_size)
+                    tp_price = price + (tp_pips * pip_size)
+                else:  # SELL
+                    sl_price = price + (sl_pips * pip_size)
+                    tp_price = price - (tp_pips * pip_size)
             
             if sl_price is None or tp_price is None:
                 logger.error(f"[ERROR] Missing SL/TP in strategy details")
@@ -349,14 +369,6 @@ class CompleteMultiAssetBot:
                 return False
             
             # Calculate SL distance in pips
-            point = symbol_info.point
-            digits = symbol_info.digits
-            
-            if digits == 5 or digits == 3:
-                pip_size = point * 10
-            else:
-                pip_size = point
-            
             sl_distance_pips = abs(price - sl_price) / pip_size
             
             # Calculate lot size
