@@ -1,42 +1,33 @@
 """
 Cryptocurrency Trading Strategies
-==================================
-Specialized strategies optimized for crypto market characteristics:
-- Higher volatility
-- 24/7 trading
-- Strong momentum
-- News-driven moves
-- Support/resistance respect
+Optimized for high volatility and 24/7 trading
 """
 
 import pandas as pd
 import numpy as np
 from typing import Tuple, Optional, Dict
+import sys
+import os
+
+# Add parent directory to path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'core'))
+
 from indicators import EnhancedTechnicalIndicators as TI
 from market_analyzer import MarketAnalyzer
-import logging
-
-logger = logging.getLogger(__name__)
 
 
 class CryptoTradingStrategies:
     """
     Cryptocurrency-specific trading strategies
-    
-    Key differences from forex:
-    - Wider stops (2-4x volatility)
-    - Stronger momentum following
-    - Less mean reversion
-    - Round number psychology (BTC: 40k, 50k, etc.)
-    - News/sentiment driven
+    Designed for high volatility, 24/7 markets
     """
     
-    def __init__(self, config=None):
+    def __init__(self, config: dict = None):
         self.config = config or {}
         self.ti = TI()
         self.market_analyzer = MarketAnalyzer()
     
-    def crypto_strategy_1_momentum_breakout(self, df_m15: pd.DataFrame, df_h1: pd.DataFrame,
+    def crypto_strategy_1_momentum_breakout(self, df_m15: pd.DataFrame, df_h1: pd.DataFrame, 
                                            symbol: str) -> Tuple[Optional[str], float, Dict]:
         """
         Crypto Strategy 1: Momentum Breakout
@@ -49,536 +40,383 @@ class CryptoTradingStrategies:
         - RSI shows momentum (>60 for buy, <40 for sell)
         
         Exit:
-        - Structure-based SL/TP
+        - Wider SL/TP for crypto volatility
         - Trailing stop (cryptos can run far)
         """
         try:
             if len(df_m15) < 100 or len(df_h1) < 50:
                 return None, 0, {}
             
-            # Calculate indicators on M15
-            df_m15 = self.ti.calculate_ema(df_m15, 20)
-            df_m15 = self.ti.calculate_rsi(df_m15, 14)
-            df_m15 = self.ti.calculate_atr(df_m15, 14)
+            # M15 indicators
+            ema20_m15 = self.ti.ema(df_m15['close'], 20)
+            rsi_m15 = self.ti.rsi(df_m15['close'], 14)
+            atr_m15 = self.ti.atr(df_m15, 14)
             
-            # Calculate volume indicators
-            df_m15['volume_ma'] = df_m15['tick_volume'].rolling(20).mean()
-            df_m15['volume_ratio'] = df_m15['tick_volume'] / df_m15['volume_ma']
+            # Volume indicators
+            volume_ma = df_m15['tick_volume'].rolling(20).mean()
+            volume_ratio = df_m15['tick_volume'] / volume_ma
             
             # 20-period high/low
-            df_m15['high_20'] = df_m15['high'].rolling(20).max()
-            df_m15['low_20'] = df_m15['low'].rolling(20).min()
+            high_20 = df_m15['high'].rolling(20).max()
+            low_20 = df_m15['low'].rolling(20).min()
+            
+            # H1 trend
+            ema50_h1 = self.ti.ema(df_h1['close'], 50)
             
             # Current values
-            close = df_m15['close'].iloc[-1]
-            high_20 = df_m15['high_20'].iloc[-2]  # Previous candle
-            low_20 = df_m15['low_20'].iloc[-2]
-            rsi = df_m15['rsi'].iloc[-1]
-            volume_ratio = df_m15['volume_ratio'].iloc[-1]
-            atr = df_m15['atr'].iloc[-1]
+            curr_close = df_m15['close'].iloc[-1]
+            prev_high_20 = high_20.iloc[-2]
+            prev_low_20 = low_20.iloc[-2]
+            curr_rsi = rsi_m15.iloc[-1]
+            curr_volume_ratio = volume_ratio.iloc[-1]
+            curr_atr = atr_m15.iloc[-1]
+            curr_price = curr_close
             
-            # H1 trend confirmation
-            df_h1 = self.ti.calculate_ema(df_h1, 50)
-            h1_trend = 'bullish' if df_h1['close'].iloc[-1] > df_h1['ema_50'].iloc[-1] else 'bearish'
+            # H1 trend
+            h1_bullish = df_h1['close'].iloc[-1] > ema50_h1.iloc[-1]
             
             action = None
             confidence = 0
             
             # Bullish breakout
-            if close > high_20 and volume_ratio > 2.0 and rsi > 60 and h1_trend == 'bullish':
+            if curr_close > prev_high_20 and curr_volume_ratio > 2.0 and curr_rsi > 60 and h1_bullish:
                 action = 'BUY'
                 confidence = 70
                 
-                # Increase confidence for strong momentum
-                if rsi > 70:
+                if curr_rsi > 70:
                     confidence += 10
-                if volume_ratio > 3.0:
+                if curr_volume_ratio > 3.0:
                     confidence += 5
             
             # Bearish breakout
-            elif close < low_20 and volume_ratio > 2.0 and rsi < 40 and h1_trend == 'bearish':
+            elif curr_close < prev_low_20 and curr_volume_ratio > 2.0 and curr_rsi < 40 and not h1_bullish:
                 action = 'SELL'
                 confidence = 70
                 
-                if rsi < 30:
+                if curr_rsi < 30:
                     confidence += 10
-                if volume_ratio > 3.0:
+                if curr_volume_ratio > 3.0:
                     confidence += 5
             
-            if not action:
-                return None, 0, {}
+            if action:
+                pip_size = self.market_analyzer.get_symbol_pip_size(symbol, curr_price)
+                
+                # Crypto-specific: Wider SL/TP (3x forex)
+                sl_pips, tp_pips = self.market_analyzer.calculate_structure_based_sl_tp(
+                    df_m15, action, curr_price, curr_atr, pip_size, 'breakout'
+                )
+                
+                # Apply crypto multiplier
+                sl_pips = sl_pips * 3.0
+                tp_pips = tp_pips * 3.0
+                
+                # Use trailing stops for crypto
+                use_trailing = True
+                trailing_distance = sl_pips * 0.5
+                
+                return action, confidence, {
+                    'strategy': 'CRYPTO_MOMENTUM_BREAKOUT',
+                    'sl_pips': sl_pips,
+                    'tp_pips': tp_pips,
+                    'use_trailing_stop': use_trailing,
+                    'trailing_distance_pips': trailing_distance,
+                    'reason': f'Momentum breakout {action.lower()} (Volume: {curr_volume_ratio:.1f}x, RSI: {curr_rsi:.0f})',
+                    'market_structure': self.market_analyzer.analyze_market_structure(df_h1)
+                }
             
-            # Dynamic SL/TP using market analyzer
-            market_analysis = self.market_analyzer.analyze_market_structure(df_h1, symbol)
-            
-            # Crypto-specific adjustments
-            volatility_mult = 3.0  # Cryptos are 3x more volatile
-            
-            sl_pips = market_analysis['recommended_sl'] * volatility_mult
-            tp_pips = market_analysis['recommended_tp'] * volatility_mult
-            
-            # Ensure minimum distances
-            min_sl = atr * 2.0
-            min_tp = atr * 4.0
-            
-            sl_pips = max(sl_pips, min_sl)
-            tp_pips = max(tp_pips, min_tp)
-            
-            logger.info(f"Crypto Momentum Breakout: {symbol} {action} @ {close:.2f}")
-            logger.info(f"  Confidence: {confidence}%, Volume: {volume_ratio:.1f}x, RSI: {rsi:.1f}")
-            logger.info(f"  SL: {sl_pips:.1f}, TP: {tp_pips:.1f}")
-            
-            return action, confidence, {
-                'sl_pips': sl_pips,
-                'tp_pips': tp_pips,
-                'strategy': 'Crypto_Momentum_Breakout',
-                'use_trailing_stop': True,
-                'trailing_activation': 0.4,  # Activate early for crypto
-                'entry_reason': f'Breakout with {volume_ratio:.1f}x volume, RSI {rsi:.0f}'
-            }
+            return None, 0, {'strategy': 'CRYPTO_MOMENTUM_BREAKOUT', 'reason': 'No breakout'}
         
         except Exception as e:
-            logger.error(f"Error in crypto_strategy_1: {e}")
-            return None, 0, {}
+            return None, 0, {'strategy': 'CRYPTO_MOMENTUM_BREAKOUT', 'error': str(e)}
     
-    def crypto_strategy_2_support_resistance(self, df_m15: pd.DataFrame, df_h1: pd.DataFrame,
+    def crypto_strategy_2_support_resistance(self, df_h1: pd.DataFrame, df_h4: pd.DataFrame,
                                             symbol: str) -> Tuple[Optional[str], float, Dict]:
         """
         Crypto Strategy 2: Support/Resistance Bounce
         
-        Cryptos respect round numbers and key levels
+        Cryptos respect key levels and round numbers
         
         Entry:
-        - Price bounces off major support/resistance
-        - Confluence with round numbers (BTC: 40k, 45k, 50k)
+        - Bounce off major support/resistance
+        - Round number psychology (BTC: 40k, 45k, 50k)
         - Volume spike on bounce
         
         Exit:
         - Target next key level
-        - Tight stop below/above level
+        - Wider stops for crypto volatility
         """
         try:
-            if len(df_m15) < 100 or len(df_h1) < 100:
+            if len(df_h1) < 100 or len(df_h4) < 50:
                 return None, 0, {}
             
-            # Calculate indicators
-            df_h1 = self.ti.calculate_ema(df_h1, 20)
-            df_h1 = self.ti.calculate_rsi(df_h1, 14)
-            df_h1 = self.ti.calculate_atr(df_h1, 14)
+            # H1 indicators
+            ema20_h1 = self.ti.ema(df_h1['close'], 20)
+            rsi_h1 = self.ti.rsi(df_h1['close'], 14)
+            atr_h1 = self.ti.atr(df_h1, 14)
             
-            # Identify support/resistance levels
-            levels = self._find_key_levels(df_h1)
+            # Volume
+            volume_ma = df_h1['tick_volume'].rolling(20).mean()
+            volume_spike = df_h1['tick_volume'].iloc[-1] > volume_ma.iloc[-1] * 1.5
             
-            if not levels:
-                return None, 0, {}
+            # Support/Resistance levels (last 100 bars)
+            recent_highs = df_h1['high'].rolling(20).max().iloc[-5:]
+            recent_lows = df_h1['low'].rolling(20).min().iloc[-5:]
             
-            close = df_h1['close'].iloc[-1]
-            rsi = df_h1['rsi'].iloc[-1]
-            atr = df_h1['atr'].iloc[-1]
+            resistance = recent_highs.max()
+            support = recent_lows.min()
             
-            # Check for round numbers (for BTC, ETH, etc.)
-            round_numbers = self._get_round_numbers(symbol, close)
+            # Current values
+            curr_close = df_h1['close'].iloc[-1]
+            curr_rsi = rsi_h1.iloc[-1]
+            curr_atr = atr_h1.iloc[-1]
+            curr_price = curr_close
+            
+            # Distance to levels
+            dist_to_support = (curr_close - support) / support
+            dist_to_resistance = (resistance - curr_close) / curr_close
             
             action = None
             confidence = 0
-            nearest_level = None
             
-            # Check if price is near support
-            for level in levels['support']:
-                distance = abs(close - level) / close
+            # Bounce off support
+            if dist_to_support < 0.02 and curr_rsi < 40 and volume_spike:
+                action = 'BUY'
+                confidence = 75
                 
-                if distance < 0.02:  # Within 2% of support
-                    # Check if bouncing
-                    if df_h1['low'].iloc[-1] <= level <= df_h1['close'].iloc[-1]:
-                        action = 'BUY'
-                        confidence = 65
-                        nearest_level = level
-                        
-                        # Increase confidence for round number confluence
-                        if any(abs(level - rn) / level < 0.01 for rn in round_numbers):
-                            confidence += 10
-                        
-                        # RSI oversold
-                        if rsi < 40:
-                            confidence += 10
-                        
-                        break
+                if curr_rsi < 30:
+                    confidence += 10
+                if dist_to_support < 0.01:
+                    confidence += 5
             
-            # Check if price is near resistance
-            if not action:
-                for level in levels['resistance']:
-                    distance = abs(close - level) / close
-                    
-                    if distance < 0.02:  # Within 2% of resistance
-                        # Check if rejecting
-                        if df_h1['high'].iloc[-1] >= level >= df_h1['close'].iloc[-1]:
-                            action = 'SELL'
-                            confidence = 65
-                            nearest_level = level
-                            
-                            # Round number confluence
-                            if any(abs(level - rn) / level < 0.01 for rn in round_numbers):
-                                confidence += 10
-                            
-                            # RSI overbought
-                            if rsi > 60:
-                                confidence += 10
-                            
-                            break
+            # Bounce off resistance
+            elif dist_to_resistance < 0.02 and curr_rsi > 60 and volume_spike:
+                action = 'SELL'
+                confidence = 75
+                
+                if curr_rsi > 70:
+                    confidence += 10
+                if dist_to_resistance < 0.01:
+                    confidence += 5
             
-            if not action:
-                return None, 0, {}
+            if action:
+                pip_size = self.market_analyzer.get_symbol_pip_size(symbol, curr_price)
+                
+                # Calculate SL/TP
+                sl_pips, tp_pips = self.market_analyzer.calculate_structure_based_sl_tp(
+                    df_h1, action, curr_price, curr_atr, pip_size, 'support_resistance'
+                )
+                
+                # Crypto multiplier
+                sl_pips = sl_pips * 2.5
+                tp_pips = tp_pips * 2.5
+                
+                return action, confidence, {
+                    'strategy': 'CRYPTO_SUPPORT_RESISTANCE',
+                    'sl_pips': sl_pips,
+                    'tp_pips': tp_pips,
+                    'use_trailing_stop': False,
+                    'trailing_distance_pips': None,
+                    'reason': f'Bounce off {"support" if action=="BUY" else "resistance"} (RSI: {curr_rsi:.0f})',
+                    'market_structure': self.market_analyzer.analyze_market_structure(df_h1)
+                }
             
-            # Calculate SL/TP
-            if action == 'BUY':
-                # Stop below support
-                sl_pips = (close - nearest_level) * 1.5
-                # Target next resistance
-                next_resistance = min([r for r in levels['resistance'] if r > close], default=close + atr * 5)
-                tp_pips = next_resistance - close
-            else:
-                # Stop above resistance
-                sl_pips = (nearest_level - close) * 1.5
-                # Target next support
-                next_support = max([s for s in levels['support'] if s < close], default=close - atr * 5)
-                tp_pips = close - next_support
-            
-            # Ensure minimum distances
-            sl_pips = max(sl_pips, atr * 2.0)
-            tp_pips = max(tp_pips, atr * 3.0)
-            
-            logger.info(f"Crypto S/R Bounce: {symbol} {action} @ {close:.2f}")
-            logger.info(f"  Level: {nearest_level:.2f}, Confidence: {confidence}%")
-            logger.info(f"  SL: {sl_pips:.1f}, TP: {tp_pips:.1f}")
-            
-            return action, confidence, {
-                'sl_pips': sl_pips,
-                'tp_pips': tp_pips,
-                'strategy': 'Crypto_Support_Resistance',
-                'use_trailing_stop': False,  # Fixed target at key level
-                'entry_reason': f'Bounce off {nearest_level:.0f} level'
-            }
+            return None, 0, {'strategy': 'CRYPTO_SUPPORT_RESISTANCE', 'reason': 'No level bounce'}
         
         except Exception as e:
-            logger.error(f"Error in crypto_strategy_2: {e}")
-            return None, 0, {}
+            return None, 0, {'strategy': 'CRYPTO_SUPPORT_RESISTANCE', 'error': str(e)}
     
-    def crypto_strategy_3_trend_following(self, df_m15: pd.DataFrame, df_h1: pd.DataFrame, df_h4: pd.DataFrame,
-                                         symbol: str) -> Tuple[Optional[str], float, Dict]:
+    def crypto_strategy_3_trend_following(self, df_m15: pd.DataFrame, df_h1: pd.DataFrame,
+                                         df_h4: pd.DataFrame, symbol: str) -> Tuple[Optional[str], float, Dict]:
         """
         Crypto Strategy 3: Multi-Timeframe Trend Following
         
-        Cryptos have strong, sustained trends
+        Cryptos trend strongly - ride the wave
         
         Entry:
-        - H4 trend established (EMA alignment)
-        - H1 pullback to support
+        - H4 trend established
+        - H1 pullback complete
         - M15 reversal signal
         
         Exit:
         - Trailing stop (let winners run)
-        - Exit on trend break
+        - Wide TP for big moves
         """
         try:
-            if len(df_m15) < 50 or len(df_h1) < 100 or len(df_h4) < 100:
+            if len(df_m15) < 50 or len(df_h1) < 100 or len(df_h4) < 50:
                 return None, 0, {}
             
             # H4 trend
-            df_h4 = self.ti.calculate_ema(df_h4, 20)
-            df_h4 = self.ti.calculate_ema(df_h4, 50)
-            
-            h4_trend = None
-            if df_h4['ema_20'].iloc[-1] > df_h4['ema_50'].iloc[-1]:
-                h4_trend = 'bullish'
-            elif df_h4['ema_20'].iloc[-1] < df_h4['ema_50'].iloc[-1]:
-                h4_trend = 'bearish'
-            
-            if not h4_trend:
-                return None, 0, {}
+            ema20_h4 = self.ti.ema(df_h4['close'], 20)
+            ema50_h4 = self.ti.ema(df_h4['close'], 50)
             
             # H1 pullback
-            df_h1 = self.ti.calculate_ema(df_h1, 20)
-            df_h1 = self.ti.calculate_rsi(df_h1, 14)
-            df_h1 = self.ti.calculate_atr(df_h1, 14)
-            
-            close_h1 = df_h1['close'].iloc[-1]
-            ema_20_h1 = df_h1['ema_20'].iloc[-1]
-            rsi_h1 = df_h1['rsi'].iloc[-1]
-            atr_h1 = df_h1['atr'].iloc[-1]
+            ema20_h1 = self.ti.ema(df_h1['close'], 20)
+            rsi_h1 = self.ti.rsi(df_h1['close'], 14)
+            atr_h1 = self.ti.atr(df_h1, 14)
             
             # M15 reversal
-            df_m15 = self.ti.calculate_ema(df_m15, 10)
-            close_m15 = df_m15['close'].iloc[-1]
-            ema_10_m15 = df_m15['ema_10'].iloc[-1]
+            ema10_m15 = self.ti.ema(df_m15['close'], 10)
+            
+            # Current values
+            curr_price = df_m15['close'].iloc[-1]
+            curr_atr = atr_h1.iloc[-1]
+            curr_rsi = rsi_h1.iloc[-1]
+            
+            # Trend direction
+            h4_bullish = ema20_h4.iloc[-1] > ema50_h4.iloc[-1]
+            h1_above_ema = df_h1['close'].iloc[-1] > ema20_h1.iloc[-1]
+            m15_above_ema = df_m15['close'].iloc[-1] > ema10_m15.iloc[-1]
             
             action = None
             confidence = 0
             
-            # Bullish trend following
-            if h4_trend == 'bullish':
-                # Pullback to H1 EMA
-                if close_h1 < ema_20_h1 * 1.02 and close_h1 > ema_20_h1 * 0.98:
-                    # M15 reversal up
-                    if close_m15 > ema_10_m15:
-                        action = 'BUY'
-                        confidence = 75
-                        
-                        # RSI not overbought
-                        if 40 < rsi_h1 < 60:
-                            confidence += 10
+            # Bullish trend
+            if h4_bullish and curr_rsi < 50 and m15_above_ema:
+                action = 'BUY'
+                confidence = 72
+                
+                if h1_above_ema:
+                    confidence += 8
+                if curr_rsi < 40:
+                    confidence += 5
             
-            # Bearish trend following
-            elif h4_trend == 'bearish':
-                # Pullback to H1 EMA
-                if close_h1 > ema_20_h1 * 0.98 and close_h1 < ema_20_h1 * 1.02:
-                    # M15 reversal down
-                    if close_m15 < ema_10_m15:
-                        action = 'SELL'
-                        confidence = 75
-                        
-                        # RSI not oversold
-                        if 40 < rsi_h1 < 60:
-                            confidence += 10
+            # Bearish trend
+            elif not h4_bullish and curr_rsi > 50 and not m15_above_ema:
+                action = 'SELL'
+                confidence = 72
+                
+                if not h1_above_ema:
+                    confidence += 8
+                if curr_rsi > 60:
+                    confidence += 5
             
-            if not action:
-                return None, 0, {}
+            if action:
+                pip_size = self.market_analyzer.get_symbol_pip_size(symbol, curr_price)
+                
+                # Trend following: Wider TP
+                sl_pips, tp_pips = self.market_analyzer.calculate_structure_based_sl_tp(
+                    df_h1, action, curr_price, curr_atr, pip_size, 'trend'
+                )
+                
+                # Crypto: Even wider for big moves
+                sl_pips = sl_pips * 3.5
+                tp_pips = tp_pips * 4.0  # Let winners run!
+                
+                # Definitely use trailing
+                use_trailing = True
+                trailing_distance = sl_pips * 0.6
+                
+                return action, confidence, {
+                    'strategy': 'CRYPTO_TREND_FOLLOWING',
+                    'sl_pips': sl_pips,
+                    'tp_pips': tp_pips,
+                    'use_trailing_stop': use_trailing,
+                    'trailing_distance_pips': trailing_distance,
+                    'reason': f'Multi-TF trend {action.lower()} (RSI: {curr_rsi:.0f})',
+                    'market_structure': self.market_analyzer.analyze_market_structure(df_h1)
+                }
             
-            # Dynamic SL/TP
-            market_analysis = self.market_analyzer.analyze_market_structure(df_h1, symbol)
-            
-            volatility_mult = 3.0
-            sl_pips = market_analysis['recommended_sl'] * volatility_mult
-            tp_pips = market_analysis['recommended_tp'] * volatility_mult * 1.5  # Wider TP for trends
-            
-            # Minimum distances
-            sl_pips = max(sl_pips, atr_h1 * 2.5)
-            tp_pips = max(tp_pips, atr_h1 * 6.0)
-            
-            logger.info(f"Crypto Trend Following: {symbol} {action} @ {close_h1:.2f}")
-            logger.info(f"  H4 Trend: {h4_trend}, Confidence: {confidence}%")
-            logger.info(f"  SL: {sl_pips:.1f}, TP: {tp_pips:.1f}")
-            
-            return action, confidence, {
-                'sl_pips': sl_pips,
-                'tp_pips': tp_pips,
-                'strategy': 'Crypto_Trend_Following',
-                'use_trailing_stop': True,
-                'trailing_activation': 0.3,  # Activate early
-                'entry_reason': f'{h4_trend.capitalize()} H4 trend, pullback entry'
-            }
+            return None, 0, {'strategy': 'CRYPTO_TREND_FOLLOWING', 'reason': 'No trend alignment'}
         
         except Exception as e:
-            logger.error(f"Error in crypto_strategy_3: {e}")
-            return None, 0, {}
+            return None, 0, {'strategy': 'CRYPTO_TREND_FOLLOWING', 'error': str(e)}
     
-    def crypto_strategy_4_volatility_breakout(self, df_m15: pd.DataFrame, df_h1: pd.DataFrame,
-                                             symbol: str) -> Tuple[Optional[str], float, Dict]:
+    def crypto_strategy_4_volatility_breakout(self, df_h1: pd.DataFrame, symbol: str) -> Tuple[Optional[str], float, Dict]:
         """
         Crypto Strategy 4: Volatility Breakout (Bollinger Bands)
         
-        Cryptos have explosive moves after consolidation
+        Cryptos consolidate then explode
         
         Entry:
-        - Bollinger Bands squeeze (low volatility)
+        - BB squeeze (low volatility)
         - Price breaks out of bands
         - Volume confirms
         
         Exit:
-        - Bollinger Band expansion complete
-        - Trailing stop
+        - Ride the volatility expansion
+        - Trailing stop essential
         """
         try:
-            if len(df_m15) < 100 or len(df_h1) < 100:
+            if len(df_h1) < 100:
                 return None, 0, {}
             
-            # Calculate Bollinger Bands on H1
-            df_h1 = self.ti.calculate_bollinger_bands(df_h1, 20, 2.0)
-            df_h1 = self.ti.calculate_atr(df_h1, 14)
+            # Bollinger Bands
+            bb_upper, bb_middle, bb_lower = self.ti.bollinger_bands(df_h1['close'], 20, 2.0)
+            atr_h1 = self.ti.atr(df_h1, 14)
+            rsi_h1 = self.ti.rsi(df_h1['close'], 14)
             
-            # Calculate band width (measure of volatility)
-            df_h1['bb_width'] = (df_h1['bb_upper'] - df_h1['bb_lower']) / df_h1['bb_middle']
-            df_h1['bb_width_ma'] = df_h1['bb_width'].rolling(50).mean()
+            # BB width (squeeze detection)
+            bb_width = (bb_upper - bb_lower) / bb_middle
+            bb_width_ma = bb_width.rolling(20).mean()
             
             # Volume
-            df_h1['volume_ma'] = df_h1['tick_volume'].rolling(20).mean()
-            df_h1['volume_ratio'] = df_h1['tick_volume'] / df_h1['volume_ma']
+            volume_ma = df_h1['tick_volume'].rolling(20).mean()
+            volume_spike = df_h1['tick_volume'].iloc[-1] > volume_ma.iloc[-1] * 1.5
             
-            close = df_h1['close'].iloc[-1]
-            bb_upper = df_h1['bb_upper'].iloc[-1]
-            bb_lower = df_h1['bb_lower'].iloc[-1]
-            bb_width = df_h1['bb_width'].iloc[-1]
-            bb_width_ma = df_h1['bb_width_ma'].iloc[-1]
-            volume_ratio = df_h1['volume_ratio'].iloc[-1]
-            atr = df_h1['atr'].iloc[-1]
+            # Current values
+            curr_close = df_h1['close'].iloc[-1]
+            curr_bb_upper = bb_upper.iloc[-1]
+            curr_bb_lower = bb_lower.iloc[-1]
+            curr_bb_width = bb_width.iloc[-1]
+            avg_bb_width = bb_width_ma.iloc[-1]
+            curr_atr = atr_h1.iloc[-1]
+            curr_rsi = rsi_h1.iloc[-1]
+            curr_price = curr_close
+            
+            # Squeeze: BB width below average
+            squeeze = curr_bb_width < avg_bb_width * 0.8
             
             action = None
             confidence = 0
             
-            # Check for squeeze (low volatility)
-            is_squeeze = bb_width < bb_width_ma * 0.7
-            
-            if not is_squeeze:
-                return None, 0, {}
-            
             # Bullish breakout
-            if close > bb_upper and volume_ratio > 1.5:
+            if squeeze and curr_close > curr_bb_upper and volume_spike and curr_rsi > 55:
                 action = 'BUY'
-                confidence = 70
+                confidence = 73
                 
-                # Strong volume
-                if volume_ratio > 2.5:
-                    confidence += 10
+                if curr_rsi > 65:
+                    confidence += 7
+                if curr_bb_width < avg_bb_width * 0.6:
+                    confidence += 5
             
             # Bearish breakout
-            elif close < bb_lower and volume_ratio > 1.5:
+            elif squeeze and curr_close < curr_bb_lower and volume_spike and curr_rsi < 45:
                 action = 'SELL'
-                confidence = 70
+                confidence = 73
                 
-                if volume_ratio > 2.5:
-                    confidence += 10
+                if curr_rsi < 35:
+                    confidence += 7
+                if curr_bb_width < avg_bb_width * 0.6:
+                    confidence += 5
             
-            if not action:
-                return None, 0, {}
+            if action:
+                pip_size = self.market_analyzer.get_symbol_pip_size(symbol, curr_price)
+                
+                # Volatility breakout: Expect big move
+                sl_pips, tp_pips = self.market_analyzer.calculate_structure_based_sl_tp(
+                    df_h1, action, curr_price, curr_atr, pip_size, 'breakout'
+                )
+                
+                # Crypto: Wide targets for volatility expansion
+                sl_pips = sl_pips * 3.0
+                tp_pips = tp_pips * 4.5  # Expect explosive move
+                
+                # Must use trailing
+                use_trailing = True
+                trailing_distance = sl_pips * 0.5
+                
+                return action, confidence, {
+                    'strategy': 'CRYPTO_VOLATILITY_BREAKOUT',
+                    'sl_pips': sl_pips,
+                    'tp_pips': tp_pips,
+                    'use_trailing_stop': use_trailing,
+                    'trailing_distance_pips': trailing_distance,
+                    'reason': f'BB squeeze breakout {action.lower()} (Width: {curr_bb_width:.4f})',
+                    'market_structure': self.market_analyzer.analyze_market_structure(df_h1)
+                }
             
-            # SL/TP based on ATR
-            sl_pips = atr * 2.5
-            tp_pips = atr * 6.0  # Wide target for breakouts
-            
-            logger.info(f"Crypto Volatility Breakout: {symbol} {action} @ {close:.2f}")
-            logger.info(f"  BB Squeeze, Volume: {volume_ratio:.1f}x, Confidence: {confidence}%")
-            logger.info(f"  SL: {sl_pips:.1f}, TP: {tp_pips:.1f}")
-            
-            return action, confidence, {
-                'sl_pips': sl_pips,
-                'tp_pips': tp_pips,
-                'strategy': 'Crypto_Volatility_Breakout',
-                'use_trailing_stop': True,
-                'trailing_activation': 0.4,
-                'entry_reason': f'BB squeeze breakout, {volume_ratio:.1f}x volume'
-            }
+            return None, 0, {'strategy': 'CRYPTO_VOLATILITY_BREAKOUT', 'reason': 'No squeeze breakout'}
         
         except Exception as e:
-            logger.error(f"Error in crypto_strategy_4: {e}")
-            return None, 0, {}
-    
-    def _find_key_levels(self, df: pd.DataFrame, lookback: int = 100) -> Dict:
-        """
-        Find key support and resistance levels
-        
-        Returns:
-            {'support': [levels], 'resistance': [levels]}
-        """
-        if len(df) < lookback:
-            return {'support': [], 'resistance': []}
-        
-        df_recent = df.iloc[-lookback:]
-        
-        # Find swing highs and lows
-        highs = []
-        lows = []
-        
-        for i in range(2, len(df_recent) - 2):
-            # Swing high
-            if (df_recent['high'].iloc[i] > df_recent['high'].iloc[i-1] and
-                df_recent['high'].iloc[i] > df_recent['high'].iloc[i-2] and
-                df_recent['high'].iloc[i] > df_recent['high'].iloc[i+1] and
-                df_recent['high'].iloc[i] > df_recent['high'].iloc[i+2]):
-                highs.append(df_recent['high'].iloc[i])
-            
-            # Swing low
-            if (df_recent['low'].iloc[i] < df_recent['low'].iloc[i-1] and
-                df_recent['low'].iloc[i] < df_recent['low'].iloc[i-2] and
-                df_recent['low'].iloc[i] < df_recent['low'].iloc[i+1] and
-                df_recent['low'].iloc[i] < df_recent['low'].iloc[i+2]):
-                lows.append(df_recent['low'].iloc[i])
-        
-        # Cluster levels (within 1% of each other)
-        resistance = self._cluster_levels(highs)
-        support = self._cluster_levels(lows)
-        
-        return {
-            'support': sorted(support),
-            'resistance': sorted(resistance, reverse=True)
-        }
-    
-    def _cluster_levels(self, levels: list, threshold: float = 0.01) -> list:
-        """Cluster levels that are close to each other"""
-        if not levels:
-            return []
-        
-        levels = sorted(levels)
-        clusters = []
-        current_cluster = [levels[0]]
-        
-        for level in levels[1:]:
-            if abs(level - current_cluster[-1]) / current_cluster[-1] < threshold:
-                current_cluster.append(level)
-            else:
-                clusters.append(np.mean(current_cluster))
-                current_cluster = [level]
-        
-        clusters.append(np.mean(current_cluster))
-        
-        return clusters
-    
-    def _get_round_numbers(self, symbol: str, price: float) -> list:
-        """
-        Get psychologically important round numbers
-        
-        BTC: 40000, 45000, 50000, etc.
-        ETH: 2000, 2500, 3000, etc.
-        Others: nearest 100s or 1000s
-        """
-        round_numbers = []
-        
-        if 'BTC' in symbol.upper():
-            # 5000 increments
-            base = int(price / 5000) * 5000
-            round_numbers = [base - 5000, base, base + 5000]
-        
-        elif 'ETH' in symbol.upper():
-            # 500 increments
-            base = int(price / 500) * 500
-            round_numbers = [base - 500, base, base + 500]
-        
-        else:
-            # 100 increments for smaller cryptos
-            base = int(price / 100) * 100
-            round_numbers = [base - 100, base, base + 100]
-        
-        return [rn for rn in round_numbers if rn > 0]
-
-
-def integrate_crypto_strategies(scanner):
-    """
-    Integrate crypto strategies into opportunity scanner
-    
-    Usage:
-        crypto_strategies = CryptoTradingStrategies()
-        integrate_crypto_strategies(scanner)
-    """
-    scanner.crypto_strategies = CryptoTradingStrategies()
-    
-    logger.info("✅ Cryptocurrency strategies integrated")
-
-
-# Example usage in opportunity_scanner_improved.py:
-"""
-from crypto_strategies import CryptoTradingStrategies
-
-class ImprovedOpportunityScanner:
-    def __init__(self):
-        self.strategies = ImprovedTradingStrategies()
-        self.crypto_strategies = CryptoTradingStrategies()  # Add this
-    
-    def scan_symbol(self, symbol, timeframe):
-        # Check if crypto
-        if self.is_crypto(symbol):
-            # Use crypto strategies
-            signal = self.crypto_strategies.crypto_strategy_1_momentum_breakout(...)
-            # ... etc
-        else:
-            # Use forex strategies
-            signal = self.strategies.strategy_1_trend_following(...)
-"""
+            return None, 0, {'strategy': 'CRYPTO_VOLATILITY_BREAKOUT', 'error': str(e)}
 
