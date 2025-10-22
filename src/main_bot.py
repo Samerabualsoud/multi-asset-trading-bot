@@ -14,8 +14,8 @@ from tabulate import tabulate
 import sys
 import os
 
-# Add parent directory to path to import utils
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add src directory to path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from utils.asset_detector import AssetDetector
 
 # Setup logging
