@@ -33,6 +33,7 @@ class MultiAssetTradingBot:
         """Initialize bot with configuration"""
         self.config = self.load_config(config_path)
         self.running = False
+        self.trade_history = []  # Track all trade execution attempts
         
         logger.info("🤖 Multi-Asset Trading Bot initialized (ENHANCED)")
     
@@ -565,19 +566,68 @@ class MultiAssetTradingBot:
             "type_filling": mt5.ORDER_FILLING_IOC,
         }
         
+        # Check margin level before sending order
+        account_info = mt5.account_info()
+        if account_info.margin_level < self.config.get('risk_management', {}).get('min_margin_level', 700):
+            fail_reason = f"Low margin level ({account_info.margin_level:.1f}%)"
+            logger.error(f"❌ Order rejected: {fail_reason}")
+            self.trade_history.append({
+                'time': datetime.now(),
+                'symbol': symbol,
+                'signal': signal,
+                'entry': entry_price,
+                'lot': lot,
+                'status': '❌ REJECTED',
+                'reason': fail_reason
+            })
+            return False
+        
         # Send order
         result = mt5.order_send(request)
         
         if result is None:
-            logger.error(f"❌ Order failed: {mt5.last_error()}")
+            error = mt5.last_error()
+            fail_reason = f"MT5 error: {error}"
+            logger.error(f"❌ Order failed: {fail_reason}")
+            self.trade_history.append({
+                'time': datetime.now(),
+                'symbol': symbol,
+                'signal': signal,
+                'entry': entry_price,
+                'lot': lot,
+                'status': '❌ FAILED',
+                'reason': fail_reason
+            })
             return False
         
         if result.retcode != mt5.TRADE_RETCODE_DONE:
-            logger.error(f"❌ Order failed: {result.comment}")
+            fail_reason = f"{result.comment} (code: {result.retcode})"
+            logger.error(f"❌ Order failed: {fail_reason}")
+            self.trade_history.append({
+                'time': datetime.now(),
+                'symbol': symbol,
+                'signal': signal,
+                'entry': entry_price,
+                'lot': lot,
+                'status': '❌ FAILED',
+                'reason': fail_reason
+            })
             return False
         
         logger.info(f"✅ ORDER EXECUTED SUCCESSFULLY!")
         logger.info(f"   Ticket: {result.order}")
+        
+        # Record successful execution
+        self.trade_history.append({
+            'time': datetime.now(),
+            'symbol': symbol,
+            'signal': signal,
+            'entry': entry_price,
+            'lot': lot,
+            'status': '✅ OPENED',
+            'reason': f"Ticket #{result.order}",
+            'ticket': result.order
+        })
         
         return True
     
@@ -768,6 +818,42 @@ class MultiAssetTradingBot:
         
         logger.info(f"💰 Total P/L: ${total_profit:.2f} | Profitable: {profitable} | Losing: {losing}")
     
+    def show_trade_history(self, max_recent=20):
+        """Show recent trade execution attempts (successful and failed)"""
+        if not self.trade_history:
+            return
+        
+        # Show only recent trades (last 20 by default)
+        recent_trades = self.trade_history[-max_recent:]
+        
+        logger.info(f"\n📋 TRADE EXECUTION HISTORY (Last {len(recent_trades)} attempts)")
+        logger.info("="*100)
+        
+        table_data = []
+        for trade in recent_trades:
+            time_str = trade['time'].strftime('%H:%M:%S')
+            table_data.append([
+                time_str,
+                trade['symbol'],
+                trade['signal'],
+                f"{trade['entry']:.5f}",
+                f"{trade['lot']:.2f}",
+                trade['status'],
+                trade['reason'][:45]  # Truncate long reasons
+            ])
+        
+        headers = ['Time', 'Symbol', 'Signal', 'Entry', 'Lot', 'Status', 'Reason/Ticket']
+        print(tabulate(table_data, headers=headers, tablefmt='grid'))
+        print()
+        
+        # Summary stats
+        opened = sum(1 for t in self.trade_history if '✅ OPENED' in t['status'])
+        rejected = sum(1 for t in self.trade_history if '❌ REJECTED' in t['status'])
+        failed = sum(1 for t in self.trade_history if '❌ FAILED' in t['status'])
+        
+        logger.info(f"📊 Execution Summary: {opened} opened | {rejected} rejected (margin) | {failed} failed (broker)")
+        logger.info("="*100)
+    
     def run(self):
         """Main bot loop"""
         logger.info("🚀 Starting Enhanced Multi-Asset Trading Bot...")
@@ -801,6 +887,9 @@ class MultiAssetTradingBot:
                 
                 # Monitor positions
                 self.monitor_positions()
+                
+                # Show trade execution history
+                self.show_trade_history()
                 
                 # Wait for next scan
                 logger.info(f"\n⏰ Next scan in {scan_interval} seconds...\n")
