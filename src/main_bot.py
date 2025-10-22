@@ -356,32 +356,88 @@ class MultiAssetTradingBot:
                     'atr': 0
                 })
         
-        # Create detailed table
-        table_data = []
-        for opp in all_opportunities:
-            table_data.append([
-                opp['symbol'],
-                opp['signal'],
-                f"{opp['entry']:.5f}" if opp['entry'] > 0 else 'N/A',
-                f"{opp['confidence']}%",
-                opp['status'],
-                opp['reason'][:50]  # Truncate long reasons
-            ])
+        # Separate opportunities into categories
+        to_trade = [opp for opp in all_opportunities if '✅ TRADE' in opp['status']]
+        skipped = [opp for opp in all_opportunities if '❌ SKIP' in opp['status']]
+        neutral = [opp for opp in all_opportunities if '⏸️  NEUTRAL' in opp['status']]
+        no_data = [opp for opp in all_opportunities if 'NO DATA' in opp['status']]
         
-        headers = ['Symbol', 'Signal', 'Entry Price', 'Confidence', 'Status', 'Reason']
+        # Table 1: Opportunities to TRADE
+        if to_trade:
+            print("\n" + "="*100)
+            print("✅ OPPORTUNITIES TO TRADE")
+            print("="*100)
+            trade_table = []
+            for opp in to_trade:
+                trade_table.append([
+                    opp['symbol'],
+                    opp['signal'],
+                    f"{opp['entry']:.5f}",
+                    f"{opp['confidence']}%",
+                    opp['reason'][:40]
+                ])
+            headers = ['Symbol', 'Signal', 'Entry Price', 'Confidence', 'Reason']
+            print(tabulate(trade_table, headers=headers, tablefmt='grid'))
+            print()
         
-        print("\n" + tabulate(table_data, headers=headers, tablefmt='grid'))
-        print()
+        # Table 2: SKIPPED Opportunities (with detailed reasons)
+        if skipped:
+            print("\n" + "="*100)
+            print("❌ SKIPPED OPPORTUNITIES (Not Traded)")
+            print("="*100)
+            skip_table = []
+            for opp in skipped:
+                # Extract skip reason from status
+                skip_reason = opp['status'].replace('❌ SKIP ', '')
+                skip_table.append([
+                    opp['symbol'],
+                    opp['signal'],
+                    f"{opp['entry']:.5f}",
+                    f"{opp['confidence']}%",
+                    skip_reason,
+                    opp['reason'][:35]
+                ])
+            headers = ['Symbol', 'Signal', 'Entry Price', 'Confidence', 'Skip Reason', 'Analysis']
+            print(tabulate(skip_table, headers=headers, tablefmt='grid'))
+            print()
+        
+        # Table 3: NEUTRAL (no clear signal)
+        if neutral:
+            print("\n" + "="*100)
+            print("⏸️  NEUTRAL PAIRS (No Clear Signal)")
+            print("="*100)
+            neutral_table = []
+            for opp in neutral:
+                neutral_table.append([
+                    opp['symbol'],
+                    f"{opp['entry']:.5f}",
+                    opp['reason']
+                ])
+            headers = ['Symbol', 'Current Price', 'Reason']
+            print(tabulate(neutral_table, headers=headers, tablefmt='grid'))
+            print()
+        
+        # Table 4: NO DATA (errors)
+        if no_data:
+            print("\n" + "="*100)
+            print("⚠️  PAIRS WITH NO DATA (Errors)")
+            print("="*100)
+            error_table = []
+            for opp in no_data:
+                error_table.append([
+                    opp['symbol'],
+                    opp['reason']
+                ])
+            headers = ['Symbol', 'Error']
+            print(tabulate(error_table, headers=headers, tablefmt='grid'))
+            print()
         
         # Summary
-        trade_count = sum(1 for opp in all_opportunities if '✅ TRADE' in opp['status'])
-        skip_count = sum(1 for opp in all_opportunities if '❌ SKIP' in opp['status'])
-        neutral_count = sum(1 for opp in all_opportunities if '⏸️  NEUTRAL' in opp['status'])
-        
-        logger.info(f"📊 SUMMARY: {trade_count} to trade | {skip_count} skipped | {neutral_count} neutral")
+        logger.info(f"\n📊 SUMMARY: {len(to_trade)} to trade | {len(skipped)} skipped | {len(neutral)} neutral | {len(no_data)} errors")
+        logger.info("="*100 + "\n")
         
         # Return only opportunities that meet criteria
-        return [opp for opp in all_opportunities if '✅ TRADE' in opp['status']]
+        return to_trade
     
     def execute_trade(self, opportunity):
         """Execute a trade with ultra-precise calculations"""
