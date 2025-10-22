@@ -704,55 +704,83 @@ class MultiAssetTradingBot:
         max_lot = symbol_info.volume_max
         lot = max(min_lot, min(lot, max_lot))
         
-        # Calculate SL/TP prices
+        # Get current market price for limit order placement
+        tick = mt5.symbol_info_tick(symbol)
+        if not tick:
+            logger.error(f"❌ Failed to get tick data for {symbol}")
+            return False
+        
+        current_bid = tick.bid
+        current_ask = tick.ask
+        
+        # PENDING ORDER STRATEGY: Place limit orders at better prices
         if signal == 'BUY':
-            order_type = mt5.ORDER_TYPE_BUY
-            sl = entry_price - sl_distance
-            tp = entry_price + tp_distance
-        else:
-            order_type = mt5.ORDER_TYPE_SELL
-            sl = entry_price + sl_distance
-            tp = entry_price - tp_distance
+            # For BUY: Place BUY LIMIT below current ask (wait for pullback)
+            # Entry price is already calculated with support/Fibonacci analysis
+            # Place limit 2-5 pips below current ask for better entry
+            limit_offset = pip_size * 3  # 3 pips better entry
+            limit_price = min(entry_price, current_ask - limit_offset)
+            
+            order_type = mt5.ORDER_TYPE_BUY_LIMIT
+            sl = limit_price - sl_distance
+            tp = limit_price + tp_distance
+        else:  # SELL
+            # For SELL: Place SELL LIMIT above current bid (wait for bounce)
+            # Place limit 2-5 pips above current bid for better entry
+            limit_offset = pip_size * 3  # 3 pips better entry
+            limit_price = max(entry_price, current_bid + limit_offset)
+            
+            order_type = mt5.ORDER_TYPE_SELL_LIMIT
+            sl = limit_price + sl_distance
+            tp = limit_price - tp_distance
         
         # Log details
-        logger.info(f"📐 Entry: {entry_price:.5f}")
+        logger.info(f"📐 PENDING ORDER (Limit)")
+        logger.info(f"📐 Current: BID={current_bid:.5f}, ASK={current_ask:.5f}")
+        logger.info(f"📐 Limit Entry: {limit_price:.5f} (waiting for better price)")
         logger.info(f"📐 SL: {sl:.5f} ({sl_pips:.1f} pips)")
         logger.info(f"📐 TP: {tp:.5f} ({tp_pips:.1f} pips)")
         logger.info(f"📐 Lot Size: {lot:.2f}")
         logger.info(f"📐 Risk: ${risk_amount:,.2f} ({risk_percent*100:.1f}%)")
         logger.info(f"📐 R:R = 1:{tp_pips/sl_pips:.1f}")
         
-        # Prepare request
+        # Check margin level before sending order (FIX: handle 0 margin)
+        account_info = mt5.account_info()
+        margin_level = account_info.margin_level
+        min_margin = self.config.get('risk_management', {}).get('min_margin_level', 700)
+        
+        # FIX: If margin_level is 0 or very high, it means no positions - allow trading
+        if margin_level > 0 and margin_level < 100000:
+            # We have positions, check margin level
+            if margin_level < min_margin:
+                fail_reason = f"Low margin level ({margin_level:.1f}%)"
+                logger.error(f"❌ Order rejected: {fail_reason}")
+                self.trade_history.append({
+                    'time': datetime.now(),
+                    'symbol': symbol,
+                    'signal': signal,
+                    'entry': limit_price,
+                    'lot': lot,
+                    'status': '❌ REJECTED',
+                    'reason': fail_reason
+                })
+                return False
+        
+        # Prepare PENDING ORDER request
         request = {
-            "action": mt5.TRADE_ACTION_DEAL,
+            "action": mt5.TRADE_ACTION_PENDING,
             "symbol": symbol,
             "volume": lot,
             "type": order_type,
-            "price": entry_price,
+            "price": limit_price,
             "sl": sl,
             "tp": tp,
             "deviation": 20,
             "magic": 234000,
-            "comment": "Enhanced Bot",
-            "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_IOC,
+            "comment": "Limit Order - Enhanced Bot",
+            "type_time": mt5.ORDER_TIME_GTC,  # Good till cancelled
+            "type_filling": mt5.ORDER_FILLING_RETURN,
         }
-        
-        # Check margin level before sending order
-        account_info = mt5.account_info()
-        if account_info.margin_level < self.config.get('risk_management', {}).get('min_margin_level', 700):
-            fail_reason = f"Low margin level ({account_info.margin_level:.1f}%)"
-            logger.error(f"❌ Order rejected: {fail_reason}")
-            self.trade_history.append({
-                'time': datetime.now(),
-                'symbol': symbol,
-                'signal': signal,
-                'entry': entry_price,
-                'lot': lot,
-                'status': '❌ REJECTED',
-                'reason': fail_reason
-            })
-            return False
         
         # Send order
         result = mt5.order_send(request)
@@ -760,44 +788,45 @@ class MultiAssetTradingBot:
         if result is None:
             error = mt5.last_error()
             fail_reason = f"MT5 error: {error}"
-            logger.error(f"❌ Order failed: {fail_reason}")
+            logger.error(f"❌ Pending order failed: {fail_reason}")
             self.trade_history.append({
                 'time': datetime.now(),
                 'symbol': symbol,
                 'signal': signal,
-                'entry': entry_price,
+                'entry': limit_price,
                 'lot': lot,
                 'status': '❌ FAILED',
                 'reason': fail_reason
             })
             return False
         
-        if result.retcode != mt5.TRADE_RETCODE_DONE:
+        if result.retcode != mt5.TRADE_RETCODE_DONE and result.retcode != mt5.TRADE_RETCODE_PLACED:
             fail_reason = f"{result.comment} (code: {result.retcode})"
-            logger.error(f"❌ Order failed: {fail_reason}")
+            logger.error(f"❌ Pending order failed: {fail_reason}")
             self.trade_history.append({
                 'time': datetime.now(),
                 'symbol': symbol,
                 'signal': signal,
-                'entry': entry_price,
+                'entry': limit_price,
                 'lot': lot,
                 'status': '❌ FAILED',
                 'reason': fail_reason
             })
             return False
         
-        logger.info(f"✅ ORDER EXECUTED SUCCESSFULLY!")
-        logger.info(f"   Ticket: {result.order}")
+        logger.info(f"✅ PENDING ORDER PLACED SUCCESSFULLY!")
+        logger.info(f"   Order Ticket: {result.order}")
+        logger.info(f"   Status: Waiting for price to reach {limit_price:.5f}")
         
-        # Record successful execution
+        # Record successful pending order placement
         self.trade_history.append({
             'time': datetime.now(),
             'symbol': symbol,
             'signal': signal,
-            'entry': entry_price,
+            'entry': limit_price,
             'lot': lot,
-            'status': '✅ OPENED',
-            'reason': f"Ticket #{result.order}",
+            'status': '✅ PENDING',
+            'reason': f"Limit Order #{result.order}",
             'ticket': result.order
         })
         
