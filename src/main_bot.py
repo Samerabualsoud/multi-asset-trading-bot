@@ -200,62 +200,90 @@ class MultiAssetTradingBot:
                 rs = avg_gain / avg_loss
                 rsi = 100 - (100 / (1 + rs))
         
-        # Determine confidence based on multiple factors
-        confidence = 50  # Base confidence
+        # STRICT STRATEGY - Reject weak signals immediately
+        confidence = 0  # Start at 0, must earn confidence
         reasons = []
+        reject_reasons = []
         
-        # MA20 alignment
+        # CRITICAL REQUIREMENT 1: Strong trend alignment (MA20 AND MA50)
         if signal == 'BUY':
-            if current_price > ma20:
-                confidence += 15
-                reasons.append("Above MA20")
+            # MUST be above both MAs
+            if current_price > ma20 and current_price > ma50:
+                # Check if MAs are aligned (uptrend)
+                if ma20 > ma50:
+                    confidence += 40  # Strong uptrend
+                    reasons.append("Strong uptrend (MA20>MA50)")
+                else:
+                    confidence += 20  # Weak uptrend
+                    reasons.append("Weak uptrend")
             else:
-                confidence -= 10
-                reasons.append("Below MA20")
+                # REJECT if not above both MAs
+                reject_reasons.append("NOT above MA20/MA50")
+                return entry_price, 0, "REJECTED: " + ", ".join(reject_reasons), atr
             
-            # MA50 alignment
-            if current_price > ma50:
+            # CRITICAL REQUIREMENT 2: Positive momentum
+            if momentum > 0.3:
+                confidence += 25
+                reasons.append(f"Strong momentum +{momentum:.2f}%")
+            elif momentum > 0:
                 confidence += 10
-                reasons.append("Above MA50")
+                reasons.append(f"Weak momentum +{momentum:.2f}%")
+            else:
+                # REJECT if momentum is negative
+                reject_reasons.append(f"Negative momentum {momentum:.2f}%")
+                return entry_price, 0, "REJECTED: " + ", ".join(reject_reasons), atr
             
-            # RSI check
-            if 30 < rsi < 70:
-                confidence += 10
-                reasons.append(f"RSI neutral ({rsi:.1f})")
-            elif rsi < 30:
-                confidence += 15
+            # CRITICAL REQUIREMENT 3: RSI not overbought
+            if rsi > 75:
+                reject_reasons.append(f"RSI too high ({rsi:.1f})")
+                return entry_price, 0, "REJECTED: " + ", ".join(reject_reasons), atr
+            elif rsi < 40:
+                confidence += 20
                 reasons.append(f"RSI oversold ({rsi:.1f})")
-            
-            # Momentum check
-            if momentum > 0:
-                confidence += 10
-                reasons.append(f"Positive momentum ({momentum:.2f}%)")
+            elif 40 <= rsi <= 60:
+                confidence += 15
+                reasons.append(f"RSI neutral ({rsi:.1f})")
         
         else:  # SELL
-            if current_price < ma20:
-                confidence += 15
-                reasons.append("Below MA20")
+            # MUST be below both MAs
+            if current_price < ma20 and current_price < ma50:
+                # Check if MAs are aligned (downtrend)
+                if ma20 < ma50:
+                    confidence += 40  # Strong downtrend
+                    reasons.append("Strong downtrend (MA20<MA50)")
+                else:
+                    confidence += 20  # Weak downtrend
+                    reasons.append("Weak downtrend")
             else:
-                confidence -= 10
-                reasons.append("Above MA20")
+                # REJECT if not below both MAs
+                reject_reasons.append("NOT below MA20/MA50")
+                return entry_price, 0, "REJECTED: " + ", ".join(reject_reasons), atr
             
-            # MA50 alignment
-            if current_price < ma50:
+            # CRITICAL REQUIREMENT 2: Negative momentum
+            if momentum < -0.3:
+                confidence += 25
+                reasons.append(f"Strong momentum {momentum:.2f}%")
+            elif momentum < 0:
                 confidence += 10
-                reasons.append("Below MA50")
+                reasons.append(f"Weak momentum {momentum:.2f}%")
+            else:
+                # REJECT if momentum is positive
+                reject_reasons.append(f"Positive momentum +{momentum:.2f}%")
+                return entry_price, 0, "REJECTED: " + ", ".join(reject_reasons), atr
             
-            # RSI check
-            if 30 < rsi < 70:
-                confidence += 10
-                reasons.append(f"RSI neutral ({rsi:.1f})")
-            elif rsi > 70:
-                confidence += 15
+            # CRITICAL REQUIREMENT 3: RSI not oversold
+            if rsi < 25:
+                reject_reasons.append(f"RSI too low ({rsi:.1f})")
+                return entry_price, 0, "REJECTED: " + ", ".join(reject_reasons), atr
+            elif rsi > 60:
+                confidence += 20
                 reasons.append(f"RSI overbought ({rsi:.1f})")
-            
-            # Momentum check
-            if momentum < 0:
-                confidence += 10
-                reasons.append(f"Negative momentum ({momentum:.2f}%)")
+            elif 40 <= rsi <= 60:
+                confidence += 15
+                reasons.append(f"RSI neutral ({rsi:.1f})")
+        
+        # If we got here, all critical requirements passed
+        # Minimum confidence is now 65-85 (40+25+15 or 40+10+15)
         
         # Adjust entry price for precision (use bid/ask instead of last close)
         symbol_info = mt5.symbol_info_tick(symbol)
