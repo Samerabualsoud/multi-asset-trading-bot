@@ -1074,7 +1074,7 @@ class MultiAssetTradingBot:
         
         # Main loop
         self.running = True
-        scan_interval = self.config.get('scan_interval_seconds', 60)
+        scan_interval = self.config.get('scan_interval_seconds', 15)  # Scan every 15 seconds
         
         try:
             while self.running:
