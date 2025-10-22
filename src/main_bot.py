@@ -11,6 +11,12 @@ import yaml
 from datetime import datetime
 from pathlib import Path
 from tabulate import tabulate
+import sys
+import os
+
+# Add parent directory to path to import utils
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils.asset_detector import AssetDetector
 
 # Setup logging
 logging.basicConfig(
