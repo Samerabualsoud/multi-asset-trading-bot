@@ -34,6 +34,8 @@ class MultiAssetTradingBot:
         self.config = self.load_config(config_path)
         self.running = False
         self.trade_history = []  # Track all trade execution attempts
+        self.failed_symbols = {}  # Track symbols that fail repeatedly {symbol: fail_count}
+        self.asset_detector = AssetDetector()
         
         logger.info("🤖 Multi-Asset Trading Bot initialized (ENHANCED)")
     
@@ -620,6 +622,22 @@ class MultiAssetTradingBot:
         
         logger.info(f"\n💼 EXECUTING TRADE: {signal} {symbol}")
         
+        # CHECK IF SYMBOL FAILED TOO MANY TIMES - Skip problematic symbols
+        if symbol in self.failed_symbols and self.failed_symbols[symbol] >= 3:
+            logger.warning(f"⚠️ {symbol} has failed {self.failed_symbols[symbol]} times - SKIPPING")
+            return False
+        
+        # CHECK FOR EXISTING PENDING ORDERS - Prevent duplicates!
+        pending_orders = mt5.orders_get(symbol=symbol)
+        if pending_orders:
+            for order in pending_orders:
+                # Check if we already have a pending order for this symbol and direction
+                order_type_name = "BUY" if order.type in [mt5.ORDER_TYPE_BUY_LIMIT, mt5.ORDER_TYPE_BUY_STOP] else "SELL"
+                if order_type_name == signal:
+                    logger.warning(f"⚠️ Pending {signal} order already exists for {symbol} (Ticket #{order.ticket})")
+                    logger.warning(f"   Skipping to avoid duplicate orders")
+                    return False  # Don't place duplicate
+        
         # Get symbol info
         symbol_info = mt5.symbol_info(symbol)
         if symbol_info is None:
@@ -714,21 +732,40 @@ class MultiAssetTradingBot:
         current_ask = tick.ask
         
         # PENDING ORDER STRATEGY: Place limit orders at better prices
+        # Asset-specific limit offsets (broker minimum distance requirements)
+        asset_type = self.asset_detector.get_asset_type(symbol)
+        
+        if asset_type == 'crypto':
+            # Crypto needs MUCH larger offsets (50-100 pips)
+            limit_offset_pips = 50  # 50 pips for crypto
+        elif asset_type == 'exotic':
+            # Exotic pairs need larger offsets (10-20 pips)
+            limit_offset_pips = 15  # 15 pips for exotics
+        else:
+            # Standard forex, metals, oil (3-5 pips)
+            limit_offset_pips = 5  # 5 pips for standard pairs
+        
+        limit_offset = pip_size * limit_offset_pips
+        
         if signal == 'BUY':
             # For BUY: Place BUY LIMIT below current ask (wait for pullback)
             # Entry price is already calculated with support/Fibonacci analysis
-            # Place limit 2-5 pips below current ask for better entry
-            limit_offset = pip_size * 3  # 3 pips better entry
             limit_price = min(entry_price, current_ask - limit_offset)
+            
+            # Ensure limit price is below current ask (broker requirement)
+            if limit_price >= current_ask:
+                limit_price = current_ask - limit_offset
             
             order_type = mt5.ORDER_TYPE_BUY_LIMIT
             sl = limit_price - sl_distance
             tp = limit_price + tp_distance
         else:  # SELL
             # For SELL: Place SELL LIMIT above current bid (wait for bounce)
-            # Place limit 2-5 pips above current bid for better entry
-            limit_offset = pip_size * 3  # 3 pips better entry
             limit_price = max(entry_price, current_bid + limit_offset)
+            
+            # Ensure limit price is above current bid (broker requirement)
+            if limit_price <= current_bid:
+                limit_price = current_bid + limit_offset
             
             order_type = mt5.ORDER_TYPE_SELL_LIMIT
             sl = limit_price + sl_distance
@@ -803,6 +840,15 @@ class MultiAssetTradingBot:
         if result.retcode != mt5.TRADE_RETCODE_DONE and result.retcode != mt5.TRADE_RETCODE_PLACED:
             fail_reason = f"{result.comment} (code: {result.retcode})"
             logger.error(f"❌ Pending order failed: {fail_reason}")
+            
+            # Track failed symbols to avoid repeated failures
+            if symbol not in self.failed_symbols:
+                self.failed_symbols[symbol] = 0
+            self.failed_symbols[symbol] += 1
+            
+            if self.failed_symbols[symbol] >= 3:
+                logger.warning(f"⚠️ {symbol} has failed {self.failed_symbols[symbol]} times - will be SKIPPED in future scans")
+            
             self.trade_history.append({
                 'time': datetime.now(),
                 'symbol': symbol,
