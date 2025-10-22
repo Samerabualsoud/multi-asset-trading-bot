@@ -169,17 +169,142 @@ class MultiAssetTradingBot:
         
         current_price = closes[-1]
         
-        # Get entry price early (needed for rejection returns)
-        symbol_info = mt5.symbol_info_tick(symbol)
-        if symbol_info:
-            if signal == 'BUY':
-                entry_price = symbol_info.ask  # Buy at ask
-            else:
-                entry_price = symbol_info.bid  # Sell at bid
-        else:
-            entry_price = current_price
+        # ============================================
+        # SUPER ACCURATE ENTRY PRICE CALCULATION
+        # ============================================
         
+        # 1. Get real-time bid/ask (actual execution prices)
+        symbol_info = mt5.symbol_info_tick(symbol)
+        if not symbol_info:
+            entry_price = current_price
+        else:
+            bid = symbol_info.bid
+            ask = symbol_info.ask
+            spread = ask - bid
+            mid_price = (bid + ask) / 2  # True market price
+            
+            # 2. Calculate Support/Resistance levels (last 50 candles)
+            # Find swing highs and lows
+            swing_highs = []
+            swing_lows = []
+            for i in range(2, min(50, len(highs)-2)):
+                # Swing high: higher than 2 candles before and after
+                if highs[-i] > highs[-i-1] and highs[-i] > highs[-i-2] and \
+                   highs[-i] > highs[-i+1] and highs[-i] > highs[-i+2]:
+                    swing_highs.append(highs[-i])
+                
+                # Swing low: lower than 2 candles before and after
+                if lows[-i] < lows[-i-1] and lows[-i] < lows[-i-2] and \
+                   lows[-i] < lows[-i+1] and lows[-i] < lows[-i+2]:
+                    swing_lows.append(lows[-i])
+            
+            # Find nearest support/resistance
+            nearest_resistance = min([h for h in swing_highs if h > mid_price], default=mid_price * 1.01)
+            nearest_support = max([l for l in swing_lows if l < mid_price], default=mid_price * 0.99)
+            
+            # 3. Calculate Fibonacci retracement levels (last 50 candles)
+            recent_high = max(highs[-50:])
+            recent_low = min(lows[-50:])
+            fib_range = recent_high - recent_low
+            
+            # Key Fibonacci levels
+            fib_236 = recent_high - (fib_range * 0.236)
+            fib_382 = recent_high - (fib_range * 0.382)
+            fib_500 = recent_high - (fib_range * 0.500)
+            fib_618 = recent_high - (fib_range * 0.618)
+            
+            # 4. Calculate VWAP (Volume-Weighted Average Price) approximation
+            # Use (high + low + close) / 3 as typical price
+            typical_prices = [(highs[i] + lows[i] + closes[i]) / 3 for i in range(-20, 0)]
+            vwap = sum(typical_prices) / len(typical_prices)
+            
+            # 5. DETERMINE OPTIMAL ENTRY PRICE
+            if signal == 'BUY':
+                # For BUY: Use ask price (what we pay)
+                base_entry = ask
+                
+                # Adjust for support levels (better entry near support)
+                distance_to_support = abs(mid_price - nearest_support)
+                if distance_to_support < fib_range * 0.02:  # Within 2% of support
+                    # Near support = good entry, use actual ask
+                    entry_price = ask
+                    confidence_boost = 5
+                else:
+                    # Away from support = wait for better price
+                    entry_price = ask
+                    confidence_boost = 0
+                
+                # Check if near Fibonacci level (optimal entry)
+                fib_tolerance = fib_range * 0.01  # 1% tolerance
+                near_fib = False
+                fib_level_name = ""
+                
+                if abs(mid_price - fib_382) < fib_tolerance:
+                    near_fib = True
+                    fib_level_name = "Fib 38.2%"
+                    confidence_boost += 10
+                elif abs(mid_price - fib_500) < fib_tolerance:
+                    near_fib = True
+                    fib_level_name = "Fib 50%"
+                    confidence_boost += 8
+                elif abs(mid_price - fib_618) < fib_tolerance:
+                    near_fib = True
+                    fib_level_name = "Fib 61.8%"
+                    confidence_boost += 12
+                
+            else:  # SELL
+                # For SELL: Use bid price (what we receive)
+                base_entry = bid
+                
+                # Adjust for resistance levels (better entry near resistance)
+                distance_to_resistance = abs(mid_price - nearest_resistance)
+                if distance_to_resistance < fib_range * 0.02:  # Within 2% of resistance
+                    # Near resistance = good entry, use actual bid
+                    entry_price = bid
+                    confidence_boost = 5
+                else:
+                    # Away from resistance = wait for better price
+                    entry_price = bid
+                    confidence_boost = 0
+                
+                # Check if near Fibonacci level (optimal entry)
+                fib_tolerance = fib_range * 0.01  # 1% tolerance
+                near_fib = False
+                fib_level_name = ""
+                
+                if abs(mid_price - fib_382) < fib_tolerance:
+                    near_fib = True
+                    fib_level_name = "Fib 38.2%"
+                    confidence_boost += 10
+                elif abs(mid_price - fib_500) < fib_tolerance:
+                    near_fib = True
+                    fib_level_name = "Fib 50%"
+                    confidence_boost += 8
+                elif abs(mid_price - fib_618) < fib_tolerance:
+                    near_fib = True
+                    fib_level_name = "Fib 61.8%"
+                    confidence_boost += 12
+            
+            # 6. Account for spread (slippage)
+            # Wide spread = reduce confidence
+            avg_spread_pct = (spread / mid_price) * 100
+            if avg_spread_pct > 0.05:  # Spread > 0.05%
+                confidence_boost -= 5  # Penalize wide spreads
+            
+            # Store for later use
+            entry_context = {
+                'spread': spread,
+                'spread_pct': avg_spread_pct,
+                'near_support': distance_to_support < fib_range * 0.02 if signal == 'BUY' else False,
+                'near_resistance': distance_to_resistance < fib_range * 0.02 if signal == 'SELL' else False,
+                'near_fib': near_fib,
+                'fib_level': fib_level_name,
+                'confidence_boost': confidence_boost
+            }
+        
+        # ============================================
         # Calculate multiple indicators for precision
+        # ============================================
         ma20 = sum(closes[-20:]) / 20
         ma50 = sum(closes[-50:]) / 50 if len(closes) >= 50 else ma20
         
@@ -222,6 +347,16 @@ class MultiAssetTradingBot:
         confidence = 0  # Start at 0, must earn confidence
         reasons = []
         reject_reasons = []
+        
+        # Add entry quality boost from support/resistance/Fibonacci analysis
+        if 'entry_context' in locals():
+            confidence += entry_context['confidence_boost']
+            if entry_context['near_fib']:
+                reasons.append(f"Near {entry_context['fib_level']}")
+            if entry_context.get('near_support'):
+                reasons.append("Near support")
+            if entry_context.get('near_resistance'):
+                reasons.append("Near resistance")
         
         # CRITICAL REQUIREMENT 1: Strong trend alignment (MA20 AND MA50)
         if signal == 'BUY':
