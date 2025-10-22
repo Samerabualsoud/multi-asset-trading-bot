@@ -59,3 +59,32 @@ def is_oil(symbol: str) -> bool:
     """Check if symbol is oil/energy"""
     return detect_asset_type(symbol) == 'oil'
 
+
+class AssetDetector:
+    """Asset detector class for compatibility"""
+    
+    @staticmethod
+    def get_asset_type(symbol: str) -> str:
+        """Get asset type for a symbol"""
+        return detect_asset_type(symbol)
+    
+    @staticmethod
+    def is_forex(symbol: str) -> bool:
+        """Check if symbol is forex"""
+        return is_forex(symbol)
+    
+    @staticmethod
+    def is_crypto(symbol: str) -> bool:
+        """Check if symbol is crypto"""
+        return is_crypto(symbol)
+    
+    @staticmethod
+    def is_metal(symbol: str) -> bool:
+        """Check if symbol is metal"""
+        return is_metal(symbol)
+    
+    @staticmethod
+    def is_oil(symbol: str) -> bool:
+        """Check if symbol is oil"""
+        return is_oil(symbol)
+

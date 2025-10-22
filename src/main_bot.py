@@ -14,9 +14,10 @@ from tabulate import tabulate
 import sys
 import os
 
-# Add src directory to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from utils.asset_detector import AssetDetector
+# Add paths for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src', 'utils'))
+
+from asset_detector import AssetDetector
 
 # Setup logging
 logging.basicConfig(
