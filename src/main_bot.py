@@ -142,11 +142,19 @@ class MultiAssetTradingBot:
         margin_level = account_info.margin_level
         min_margin = self.config.get('risk_management', {}).get('min_margin_level', 700)
         
+        # If margin_level is 0 or very high (>100000), it means no positions open
+        # In this case, margin is fine - allow trading
+        if margin_level == 0 or margin_level > 100000:
+            logger.info(f"✅ No open positions - Margin OK (unlimited)")
+            return True
+        
+        # Check if margin level is too low
         if margin_level < min_margin:
             logger.warning(f"⚠️  Margin level too low: {margin_level:.2f}% < {min_margin}%")
             logger.warning(f"⚠️  STOPPING TRADING - Margin protection activated!")
             return False
         
+        logger.info(f"✅ Margin level OK: {margin_level:.2f}% > {min_margin}%")
         return True
     
     def calculate_precise_entry(self, symbol, signal, rates):
