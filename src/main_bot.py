@@ -728,7 +728,7 @@ class MultiAssetTradingBot:
         max_lot = symbol_info.volume_max
         lot = max(min_lot, min(lot, max_lot))
         
-        # Get current market price for limit order placement
+        # INSTANT EXECUTION: Get real-time market price for immediate execution
         tick = mt5.symbol_info_tick(symbol)
         if not tick:
             logger.error(f"❌ Failed to get tick data for {symbol}")
@@ -736,56 +736,78 @@ class MultiAssetTradingBot:
         
         current_bid = tick.bid
         current_ask = tick.ask
+        mid_price = (current_bid + current_ask) / 2
+        spread = current_ask - current_bid
         
-        # PENDING ORDER STRATEGY: Place limit orders at better prices
-        # Asset-specific limit offsets (broker minimum distance requirements)
-        asset_type = self.asset_detector.get_asset_type(symbol)
+        # ULTRA-PRECISE ENTRY PRICE CALCULATION
+        # Use actual execution price (bid for SELL, ask for BUY)
+        if signal == 'BUY':
+            # BUY at ASK price (what we actually pay)
+            execution_price = current_ask
+            order_type = mt5.ORDER_TYPE_BUY
+            
+            # ULTRA-PRECISE SL/TP calculation
+            # SL below entry, TP above entry
+            sl_price = execution_price - sl_distance
+            tp_price = execution_price + tp_distance
+            
+        else:  # SELL
+            # SELL at BID price (what we actually receive)
+            execution_price = current_bid
+            order_type = mt5.ORDER_TYPE_SELL
+            
+            # ULTRA-PRECISE SL/TP calculation
+            # SL above entry, TP below entry
+            sl_price = execution_price + sl_distance
+            tp_price = execution_price - tp_distance
         
-        if asset_type == 'crypto':
-            # Crypto needs MUCH larger offsets (50-100 pips)
-            limit_offset_pips = 50  # 50 pips for crypto
-        elif asset_type == 'exotic':
-            # Exotic pairs need larger offsets (10-20 pips)
-            limit_offset_pips = 15  # 15 pips for exotics
-        else:
-            # Standard forex, metals, oil (3-5 pips)
-            limit_offset_pips = 5  # 5 pips for standard pairs
+        # Round SL/TP to proper decimal places (broker requirement)
+        digits = symbol_info.digits
+        sl_price = round(sl_price, digits)
+        tp_price = round(tp_price, digits)
+        execution_price = round(execution_price, digits)
         
-        limit_offset = pip_size * limit_offset_pips
+        # Verify SL/TP distances meet broker minimum requirements
+        stops_level = symbol_info.trade_stops_level * symbol_info.point
         
         if signal == 'BUY':
-            # For BUY: Place BUY LIMIT below current ask (wait for pullback)
-            # Entry price is already calculated with support/Fibonacci analysis
-            limit_price = min(entry_price, current_ask - limit_offset)
+            # Check minimum distance for BUY
+            actual_sl_distance = execution_price - sl_price
+            actual_tp_distance = tp_price - execution_price
             
-            # Ensure limit price is below current ask (broker requirement)
-            if limit_price >= current_ask:
-                limit_price = current_ask - limit_offset
+            if actual_sl_distance < stops_level:
+                sl_price = execution_price - stops_level
+                logger.warning(f"⚠️ SL adjusted to meet broker minimum distance")
             
-            order_type = mt5.ORDER_TYPE_BUY_LIMIT
-            sl = limit_price - sl_distance
-            tp = limit_price + tp_distance
-        else:  # SELL
-            # For SELL: Place SELL LIMIT above current bid (wait for bounce)
-            limit_price = max(entry_price, current_bid + limit_offset)
+            if actual_tp_distance < stops_level:
+                tp_price = execution_price + stops_level
+                logger.warning(f"⚠️ TP adjusted to meet broker minimum distance")
+        else:
+            # Check minimum distance for SELL
+            actual_sl_distance = sl_price - execution_price
+            actual_tp_distance = execution_price - tp_price
             
-            # Ensure limit price is above current bid (broker requirement)
-            if limit_price <= current_bid:
-                limit_price = current_bid + limit_offset
+            if actual_sl_distance < stops_level:
+                sl_price = execution_price + stops_level
+                logger.warning(f"⚠️ SL adjusted to meet broker minimum distance")
             
-            order_type = mt5.ORDER_TYPE_SELL_LIMIT
-            sl = limit_price + sl_distance
-            tp = limit_price - tp_distance
+            if actual_tp_distance < stops_level:
+                tp_price = execution_price - stops_level
+                logger.warning(f"⚠️ TP adjusted to meet broker minimum distance")
         
         # Log details
-        logger.info(f"📐 PENDING ORDER (Limit)")
-        logger.info(f"📐 Current: BID={current_bid:.5f}, ASK={current_ask:.5f}")
-        logger.info(f"📐 Limit Entry: {limit_price:.5f} (waiting for better price)")
-        logger.info(f"📐 SL: {sl:.5f} ({sl_pips:.1f} pips)")
-        logger.info(f"📐 TP: {tp:.5f} ({tp_pips:.1f} pips)")
+        logger.info(f"📐 INSTANT EXECUTION (Market Order)")
+        logger.info(f"📐 Current: BID={current_bid:.{digits}f}, ASK={current_ask:.{digits}f}, Spread={spread:.{digits}f}")
+        logger.info(f"📐 Execution Price: {execution_price:.{digits}f} (immediate fill)")
+        logger.info(f"📐 SL: {sl_price:.{digits}f} ({sl_pips:.1f} pips)")
+        logger.info(f"📐 TP: {tp_price:.{digits}f} ({tp_pips:.1f} pips)")
         logger.info(f"📐 Lot Size: {lot:.2f}")
         logger.info(f"📐 Risk: ${risk_amount:,.2f} ({risk_percent*100:.1f}%)")
         logger.info(f"📐 R:R = 1:{tp_pips/sl_pips:.1f}")
+        
+        # Store for request
+        sl = sl_price
+        tp = tp_price
         
         # Check margin level before sending order (FIX: handle 0 margin)
         account_info = mt5.account_info()
@@ -802,27 +824,27 @@ class MultiAssetTradingBot:
                     'time': datetime.now(),
                     'symbol': symbol,
                     'signal': signal,
-                    'entry': limit_price,
+                    'entry': execution_price,
                     'lot': lot,
                     'status': '❌ REJECTED',
                     'reason': fail_reason
                 })
                 return False
         
-        # Prepare PENDING ORDER request
+        # Prepare INSTANT EXECUTION request (Market Order)
         request = {
-            "action": mt5.TRADE_ACTION_PENDING,
+            "action": mt5.TRADE_ACTION_DEAL,
             "symbol": symbol,
             "volume": lot,
             "type": order_type,
-            "price": limit_price,
+            "price": execution_price,
             "sl": sl,
             "tp": tp,
             "deviation": 20,
             "magic": 234000,
-            "comment": "Limit Order - Enhanced Bot",
-            "type_time": mt5.ORDER_TIME_GTC,  # Good till cancelled
-            "type_filling": mt5.ORDER_FILLING_RETURN,
+            "comment": "Enhanced Bot - Instant",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_IOC,
         }
         
         # Send order
@@ -831,21 +853,21 @@ class MultiAssetTradingBot:
         if result is None:
             error = mt5.last_error()
             fail_reason = f"MT5 error: {error}"
-            logger.error(f"❌ Pending order failed: {fail_reason}")
+            logger.error(f"❌ Order failed: {fail_reason}")
             self.trade_history.append({
                 'time': datetime.now(),
                 'symbol': symbol,
                 'signal': signal,
-                'entry': limit_price,
+                'entry': execution_price,
                 'lot': lot,
                 'status': '❌ FAILED',
                 'reason': fail_reason
             })
             return False
         
-        if result.retcode != mt5.TRADE_RETCODE_DONE and result.retcode != mt5.TRADE_RETCODE_PLACED:
+        if result.retcode != mt5.TRADE_RETCODE_DONE:
             fail_reason = f"{result.comment} (code: {result.retcode})"
-            logger.error(f"❌ Pending order failed: {fail_reason}")
+            logger.error(f"❌ Order failed: {fail_reason}")
             
             # Track failed symbols to avoid repeated failures
             if symbol not in self.failed_symbols:
@@ -859,26 +881,27 @@ class MultiAssetTradingBot:
                 'time': datetime.now(),
                 'symbol': symbol,
                 'signal': signal,
-                'entry': limit_price,
+                'entry': execution_price,
                 'lot': lot,
                 'status': '❌ FAILED',
                 'reason': fail_reason
             })
             return False
         
-        logger.info(f"✅ PENDING ORDER PLACED SUCCESSFULLY!")
-        logger.info(f"   Order Ticket: {result.order}")
-        logger.info(f"   Status: Waiting for price to reach {limit_price:.5f}")
+        logger.info(f"✅ ORDER EXECUTED SUCCESSFULLY!")
+        logger.info(f"   Ticket: {result.order}")
+        logger.info(f"   Executed at: {execution_price:.{digits}f}")
+        logger.info(f"   Actual fill: {result.price:.{digits}f}")
         
-        # Record successful pending order placement
+        # Record successful execution
         self.trade_history.append({
             'time': datetime.now(),
             'symbol': symbol,
             'signal': signal,
-            'entry': limit_price,
+            'entry': execution_price,
             'lot': lot,
-            'status': '✅ PENDING',
-            'reason': f"Limit Order #{result.order}",
+            'status': '✅ OPENED',
+            'reason': f"Ticket #{result.order}",
             'ticket': result.order
         })
         
