@@ -525,14 +525,154 @@ class MultiAssetTradingBot:
         
         return True
     
+    def analyze_position_probability(self, position):
+        """Analyze probability of position hitting TP vs SL"""
+        symbol = position.symbol
+        price_current = position.price_current
+        price_open = position.price_open
+        sl = position.sl
+        tp = position.tp
+        position_type = position.type  # 0 = BUY, 1 = SELL
+        
+        # Get recent market data
+        rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M15, 0, 50)
+        if rates is None or len(rates) == 0:
+            return 50, "No data", "HOLD"
+        
+        closes = [r['close'] for r in rates]
+        highs = [r['high'] for r in rates]
+        lows = [r['low'] for r in rates]
+        
+        # Calculate indicators
+        ma20 = sum(closes[-20:]) / 20
+        ma50 = sum(closes[-50:]) / 50 if len(closes) >= 50 else ma20
+        
+        # Calculate momentum
+        momentum = (price_current - closes[-10]) / closes[-10] * 100 if len(closes) >= 10 else 0
+        
+        # Calculate RSI
+        rsi = 50
+        if len(closes) >= 15:
+            gains = []
+            losses = []
+            for i in range(len(closes)-14, len(closes)):
+                change = closes[i] - closes[i-1]
+                if change > 0:
+                    gains.append(change)
+                    losses.append(0)
+                else:
+                    gains.append(0)
+                    losses.append(abs(change))
+            
+            avg_gain = sum(gains) / 14
+            avg_loss = sum(losses) / 14
+            
+            if avg_loss != 0:
+                rs = avg_gain / avg_loss
+                rsi = 100 - (100 / (1 + rs))
+        
+        # Calculate distances
+        if position_type == 0:  # BUY
+            dist_to_tp = tp - price_current
+            dist_to_sl = price_current - sl
+        else:  # SELL
+            dist_to_tp = price_current - tp
+            dist_to_sl = sl - price_current
+        
+        total_dist = dist_to_tp + dist_to_sl
+        progress = (dist_to_sl / total_dist * 100) if total_dist > 0 else 0
+        
+        # Start with base probability
+        tp_probability = 50
+        reasons = []
+        
+        # Factor 1: Trend alignment (±20%)
+        if position_type == 0:  # BUY
+            if price_current > ma20 > ma50:
+                tp_probability += 20
+                reasons.append("Strong uptrend")
+            elif price_current > ma20:
+                tp_probability += 10
+                reasons.append("Uptrend")
+            elif price_current < ma20:
+                tp_probability -= 15
+                reasons.append("Against trend")
+        else:  # SELL
+            if price_current < ma20 < ma50:
+                tp_probability += 20
+                reasons.append("Strong downtrend")
+            elif price_current < ma20:
+                tp_probability += 10
+                reasons.append("Downtrend")
+            elif price_current > ma20:
+                tp_probability -= 15
+                reasons.append("Against trend")
+        
+        # Factor 2: Momentum alignment (±15%)
+        if position_type == 0:  # BUY
+            if momentum > 0.5:
+                tp_probability += 15
+                reasons.append(f"Momentum +{momentum:.1f}%")
+            elif momentum < -0.5:
+                tp_probability -= 10
+                reasons.append(f"Momentum {momentum:.1f}%")
+        else:  # SELL
+            if momentum < -0.5:
+                tp_probability += 15
+                reasons.append(f"Momentum {momentum:.1f}%")
+            elif momentum > 0.5:
+                tp_probability -= 10
+                reasons.append(f"Momentum +{momentum:.1f}%")
+        
+        # Factor 3: RSI (±10%)
+        if position_type == 0:  # BUY
+            if rsi < 40:
+                tp_probability += 10
+                reasons.append(f"RSI oversold ({rsi:.0f})")
+            elif rsi > 70:
+                tp_probability -= 10
+                reasons.append(f"RSI overbought ({rsi:.0f})")
+        else:  # SELL
+            if rsi > 60:
+                tp_probability += 10
+                reasons.append(f"RSI overbought ({rsi:.0f})")
+            elif rsi < 30:
+                tp_probability -= 10
+                reasons.append(f"RSI oversold ({rsi:.0f})")
+        
+        # Factor 4: Progress to TP (±10%)
+        if progress > 60:
+            tp_probability += 10
+            reasons.append(f"Near TP ({progress:.0f}%)")
+        elif progress < 20:
+            tp_probability -= 5
+            reasons.append(f"Near SL ({progress:.0f}%)")
+        
+        # Cap probability
+        tp_probability = max(0, min(100, tp_probability))
+        
+        # Determine recommendation
+        if tp_probability >= 70:
+            recommendation = "🎯 HOLD (High TP prob)"
+        elif tp_probability >= 50:
+            recommendation = "⏸️ HOLD (Neutral)"
+        elif tp_probability >= 30:
+            recommendation = "⚠️ WATCH (Low TP prob)"
+        else:
+            recommendation = "❌ CLOSE (Very low TP prob)"
+        
+        reason_text = ", ".join(reasons[:2]) if reasons else "Neutral"
+        
+        return tp_probability, reason_text, recommendation
+    
     def monitor_positions(self):
-        """Monitor open positions"""
+        """Monitor open positions with intelligent TP probability analysis"""
         positions = mt5.positions_get()
         
         if positions is None or len(positions) == 0:
             return
         
-        logger.info(f"\n📊 Monitoring {len(positions)} positions...")
+        logger.info(f"\n📊 Monitoring {len(positions)} positions with TP Analysis...")
         
         table_data = []
         for position in positions:
@@ -541,6 +681,9 @@ class MultiAssetTradingBot:
             volume = position.volume
             price_open = position.price_open
             price_current = position.price_current
+            
+            # Analyze TP probability
+            tp_prob, analysis, recommendation = self.analyze_position_probability(position)
             
             status = "✅ Profit" if profit > 0 else "❌ Loss"
             
@@ -552,12 +695,22 @@ class MultiAssetTradingBot:
                 f"{price_open:.5f}",
                 f"{price_current:.5f}",
                 f"${profit:.2f}",
-                status
+                status,
+                f"{tp_prob}%",
+                analysis[:30],  # Truncate long analysis
+                recommendation
             ])
         
-        headers = ['Ticket', 'Symbol', 'Type', 'Lot', 'Open', 'Current', 'P/L', 'Status']
+        headers = ['Ticket', 'Symbol', 'Type', 'Lot', 'Open', 'Current', 'P/L', 'Status', 'TP Prob', 'Analysis', 'Action']
         print("\n" + tabulate(table_data, headers=headers, tablefmt='grid'))
         print()
+        
+        # Summary statistics
+        total_profit = sum(p.profit for p in positions)
+        profitable = sum(1 for p in positions if p.profit > 0)
+        losing = len(positions) - profitable
+        
+        logger.info(f"💰 Total P/L: ${total_profit:.2f} | Profitable: {profitable} | Losing: {losing}")
     
     def run(self):
         """Main bot loop"""
