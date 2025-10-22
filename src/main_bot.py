@@ -169,6 +169,16 @@ class MultiAssetTradingBot:
         
         current_price = closes[-1]
         
+        # Get entry price early (needed for rejection returns)
+        symbol_info = mt5.symbol_info_tick(symbol)
+        if symbol_info:
+            if signal == 'BUY':
+                entry_price = symbol_info.ask  # Buy at ask
+            else:
+                entry_price = symbol_info.bid  # Sell at bid
+        else:
+            entry_price = current_price
+        
         # Calculate multiple indicators for precision
         ma20 = sum(closes[-20:]) / 20
         ma50 = sum(closes[-50:]) / 50 if len(closes) >= 50 else ma20
@@ -292,16 +302,7 @@ class MultiAssetTradingBot:
         
         # If we got here, all critical requirements passed
         # Minimum confidence is now 65-85 (40+25+15 or 40+10+15)
-        
-        # Adjust entry price for precision (use bid/ask instead of last close)
-        symbol_info = mt5.symbol_info_tick(symbol)
-        if symbol_info:
-            if signal == 'BUY':
-                entry_price = symbol_info.ask  # Buy at ask
-            else:
-                entry_price = symbol_info.bid  # Sell at bid
-        else:
-            entry_price = current_price
+        # Entry price already calculated at the beginning
         
         reason = ", ".join(reasons) if reasons else "Basic signal"
         
