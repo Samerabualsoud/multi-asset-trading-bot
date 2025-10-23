@@ -89,30 +89,25 @@ class AutoRetrainSystemV2:
             return symbols
     
     def collect_fresh_data(self, symbol, days=None):
-        """Collect fresh market data with smart M5/H1 hybrid approach"""
+        """Collect maximum available M30 data (up to 10 years)"""
         logger.info(f"Collecting fresh data for {symbol}...")
         
         # Target: Get as much data as possible (up to 10 years)
         if days is None:
             days = 3650  # 10 years
         
-        # First, try M5 data
-        logger.info(f"Attempting M5 data collection for {symbol}...")
-        df_m5 = self._collect_data_chunked(symbol, mt5.TIMEFRAME_M5, days, bars_per_day=288)
+        # Try M30 data first (48 bars per day)
+        logger.info(f"Attempting M30 data collection for {symbol} (up to 10 years)...")
+        df_m30 = self._collect_data_chunked(symbol, mt5.TIMEFRAME_M30, days, bars_per_day=48)
         
-        if df_m5 is not None:
-            m5_days = len(df_m5) / 288
-            m5_years = m5_days / 365
-            
-            # If we got at least 2 years of M5 data, use it
-            if m5_years >= 2.0:
-                logger.info(f"✓ Using M5 data: {len(df_m5):,} bars ({m5_years:.1f} years)")
-                return df_m5
-            else:
-                logger.warning(f"⚠ M5 data limited to {m5_years:.1f} years, trying H1 for more history...")
+        if df_m30 is not None:
+            m30_days = len(df_m30) / 48
+            m30_years = m30_days / 365
+            logger.info(f"✓ Using M30 data: {len(df_m30):,} bars ({m30_years:.1f} years)")
+            return df_m30
         
-        # Fallback to H1 if M5 is limited or unavailable
-        logger.info(f"Attempting H1 data collection for {symbol}...")
+        # Only fall back to H1 if M30 completely failed
+        logger.warning(f"⚠ M30 data unavailable, trying H1 as fallback...")
         df_h1 = self._collect_data_chunked(symbol, mt5.TIMEFRAME_H1, days, bars_per_day=24)
         
         if df_h1 is not None:
@@ -120,11 +115,6 @@ class AutoRetrainSystemV2:
             h1_years = h1_days / 365
             logger.info(f"✓ Using H1 data: {len(df_h1):,} bars ({h1_years:.1f} years)")
             return df_h1
-        
-        # If both failed, return M5 data if we have any
-        if df_m5 is not None:
-            logger.warning(f"⚠ H1 also failed, using limited M5 data ({m5_years:.1f} years)")
-            return df_m5
         
         logger.error(f"✗ No data available for {symbol}")
         return None
@@ -134,7 +124,12 @@ class AutoRetrainSystemV2:
         max_bars_per_request = 99999  # Stay under MT5's limit
         total_bars_needed = days * bars_per_day
         
-        timeframe_name = "M5" if bars_per_day == 288 else "H1"
+        if bars_per_day == 48:
+            timeframe_name = "M30"
+        elif bars_per_day == 24:
+            timeframe_name = "H1"
+        else:
+            timeframe_name = f"Unknown({bars_per_day})"
         
         all_rates = []
         bars_collected = 0

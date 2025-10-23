@@ -100,7 +100,12 @@ class AutoRetrainSystem:
         max_bars_per_request = 99999  # Stay under MT5's limit
         total_bars_needed = days * bars_per_day
         
-        timeframe_name = "M5" if bars_per_day == 288 else "H1"
+        if bars_per_day == 48:
+            timeframe_name = "M30"
+        elif bars_per_day == 24:
+            timeframe_name = "H1"
+        else:
+            timeframe_name = f"Unknown({bars_per_day})"
         
         all_rates = []
         bars_collected = 0
