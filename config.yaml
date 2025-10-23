@@ -1,0 +1,45 @@
+# ML + LLM Trading Bot Configuration
+
+# MT5 Connection
+mt5_login: 843300
+mt5_password: "2141991@Sam"
+mt5_server: "ACYSecurities-Demo"
+mt5_path: "C:\\Program Files\\MetaTrader 5\\terminal64.exe"  # Windows
+
+# API Keys
+deepseek_api_key: "YOUR_DEEPSEEK_API_KEY_HERE"  # Get from https://platform.deepseek.com
+newsapi_key: "YOUR_NEWSAPI_KEY_HERE"  # Optional, for news sentiment
+
+# Trading Parameters
+risk_per_trade: 0.02  # 2% risk per trade
+max_positions: 5  # Maximum concurrent positions
+min_confidence: 0.70  # Minimum confidence to trade (70%)
+
+# LLM Settings
+llm_enabled: true  # Enable/disable LLM analyst
+llm_model: "deepseek-chat"
+llm_temperature: 0.3
+
+# Trading Symbols
+symbols:
+  - EURUSD
+  - GBPUSD
+  - USDJPY
+  - AUDUSD
+  - USDCAD
+  - NZDUSD
+  - EURJPY
+  - GBPJPY
+  - AUDJPY
+  - BTCUSD
+  - ETHUSD
+  - XAUUSD
+  - XAGUSD
+
+# Timeframe
+timeframe: H1  # Hourly
+
+# Logging
+log_level: INFO
+log_file: "ml_llm_bot.log"
+
