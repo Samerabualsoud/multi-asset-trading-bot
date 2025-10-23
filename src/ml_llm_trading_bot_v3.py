@@ -23,20 +23,24 @@ import pickle
 from openai import OpenAI
 import concurrent.futures
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('ml_llm_bot_v3.log'),
-        logging.StreamHandler()
-    ]
-)
+# Setup basic logging (will be reconfigured after loading config)
 logger = logging.getLogger(__name__)
 
 class MLLLMTradingBotV3:
     def __init__(self, config_path='config.yaml'):
         self.config = self.load_config(config_path)
+        
+        # Configure logging based on config
+        log_level = getattr(logging, self.config.get('log_level', 'INFO').upper())
+        logging.basicConfig(
+            level=log_level,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler(self.config.get('log_file', 'ml_llm_bot_v3.log')),
+                logging.StreamHandler()
+            ],
+            force=True  # Override any existing config
+        )
         self.models = {}
         self.scalers = {}
         self.running = True
