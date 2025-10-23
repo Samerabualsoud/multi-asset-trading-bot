@@ -1,0 +1,60 @@
+# ML + LLM Trading Bot V3 Configuration
+# Supports Auto-Discovery of Symbols
+
+# MT5 Connection
+mt5_login: 843300
+mt5_password: "2141991@Sam"
+mt5_server: "ACYSecurities-Demo"
+mt5_path: "C:\\Program Files\\MetaTrader 5\\terminal64.exe"  # Windows path. For Linux/Mac, set to the correct path.
+
+# API Keys
+deepseek_api_key: "YOUR_DEEPSEEK_API_KEY_HERE"  # Get from https://platform.deepseek.com
+newsapi_key: "YOUR_NEWSAPI_KEY_HERE"  # Optional, for news sentiment
+
+# --- SYMBOL MANAGEMENT ---
+# Enable auto-discovery to dynamically find all tradeable symbols.
+# If false, the bot will use the manual `symbols` list below.
+auto_discover_symbols: true
+
+# Symbol discovery mode. Only used if `auto_discover_symbols` is true.
+# - conservative: Low spread, high liquidity, major pairs, and metals.
+# - balanced: Mix of majors, crosses, crypto, metals, and indices. (Recommended)
+# - aggressive: Includes exotics, commodities, and indices with wider criteria.
+# - all: All tradeable symbols found, regardless of liquidity or type.
+discovery_mode: "balanced"
+
+# Manual symbol list. Only used if `auto_discover_symbols` is false.
+symbols:
+  - EURUSD
+  - GBPUSD
+  - USDJPY
+  - AUDUSD
+  - USDCAD
+  - NZDUSD
+  - EURJPY
+  - GBPJPY
+  - AUDJPY
+  - BTCUSD
+  - ETHUSD
+  - XAUUSD
+  - XAGUSD
+
+# --- TRADING PARAMETERS ---
+risk_per_trade: 0.02  # 2% take profit on all trades
+max_positions: 5      # Maximum concurrent open positions
+min_confidence: 0.70  # Minimum LLM confidence to place a trade (70%)
+scan_interval: 15     # Seconds between each market scan
+
+# --- LLM ANALYST ---
+llm_enabled: true  # Enable/disable LLM trade validation
+llm_model: "deepseek-chat"
+llm_temperature: 0.3
+llm_timeout: 5 # Seconds to wait for LLM response before skipping
+
+# --- RETRAIN SYSTEM ---
+retrain_interval_hours: 12  # How often to retrain all models
+
+# --- LOGGING ---
+log_level: INFO
+log_file: "ml_llm_bot_v3.log"
+
