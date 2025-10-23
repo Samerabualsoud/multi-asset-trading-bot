@@ -253,23 +253,23 @@ class MultiAssetTradingBot:
         if 0 <= hour < 8:
             session = 'asian'
             vol_mult = 0.7
-            min_confidence = 70 if is_good_morning else 65
+            min_confidence = 85  # STRICTER: Increased from 65-70
         elif 8 <= hour < 13:
             session = 'london'
             vol_mult = 0.9
-            min_confidence = 70 if is_good_morning else 75
+            min_confidence = 85  # STRICTER: Increased from 70-75
         elif 13 <= hour < 16:
             session = 'overlap'
             vol_mult = 1.0
-            min_confidence = 75 if is_good_morning else 80
+            min_confidence = 85  # STRICTER: Increased from 75-80
         elif 16 <= hour < 21:
             session = 'newyork'
             vol_mult = 0.9
-            min_confidence = 75
+            min_confidence = 85  # STRICTER: Increased from 75
         else:
             session = 'asian'
             vol_mult = 0.7
-            min_confidence = 65
+            min_confidence = 85  # STRICTER: Increased from 65
         
         return session, vol_mult, min_confidence, is_good_morning
     
@@ -476,30 +476,30 @@ class MultiAssetTradingBot:
             reasons.append(f"Near {fib_level_name}")
         
         if signal == 'BUY':
-            # REQUIREMENT 1: Strong uptrend
+            # REQUIREMENT 1: VERY Strong uptrend (STRICTER)
             if current_price > ma20 and current_price > ma50 and current_price > ema20:
+                # MUST have perfect MA alignment
                 if ma20 > ma50 and ema20 > ma20:
-                    confidence += 50
-                    reasons.append("Very strong uptrend")
-                elif ma20 > ma50:
-                    confidence += 35
-                    reasons.append("Strong uptrend")
+                    confidence += 50  # Very strong uptrend
+                    reasons.append("Perfect uptrend alignment")
                 else:
-                    confidence += 15
-                    reasons.append("Weak uptrend")
+                    # REJECT if MAs not perfectly aligned
+                    reject_reasons.append("MAs not aligned (need EMA20>MA20>MA50)")
+                    return entry_price, 0, "REJECTED: " + ", ".join(reject_reasons), atr
             else:
-                reject_reasons.append("NOT above MAs")
+                reject_reasons.append("NOT above all MAs")
                 return entry_price, 0, "REJECTED: " + ", ".join(reject_reasons), atr
             
-            # REQUIREMENT 2: Positive momentum
-            if momentum > 0.3:
-                confidence += 25
+            # REQUIREMENT 2: STRONG Positive momentum (STRICTER)
+            if momentum > 0.5:
+                confidence += 30
+                reasons.append(f"Very strong momentum +{momentum:.2f}%")
+            elif momentum > 0.3:
+                confidence += 20
                 reasons.append(f"Strong momentum +{momentum:.2f}%")
-            elif momentum > 0:
-                confidence += 10
-                reasons.append(f"Weak momentum +{momentum:.2f}%")
             else:
-                reject_reasons.append(f"Negative momentum")
+                # REJECT if momentum not strong enough
+                reject_reasons.append(f"Weak momentum {momentum:.2f}% (need >0.3%)")
                 return entry_price, 0, "REJECTED: " + ", ".join(reject_reasons), atr
             
             # REQUIREMENT 3: MACD bullish
@@ -507,71 +507,109 @@ class MultiAssetTradingBot:
                 confidence += 10
                 reasons.append("MACD bullish")
             
-            # REQUIREMENT 4: RSI check
-            if rsi > 75:
-                reject_reasons.append(f"RSI overbought ({rsi:.1f})")
+            # REQUIREMENT 4: RSI check (STRICTER)
+            if rsi > 70:
+                reject_reasons.append(f"RSI too high ({rsi:.1f} > 70)")
                 return entry_price, 0, "REJECTED: " + ", ".join(reject_reasons), atr
-            elif rsi < 40:
-                confidence += 20
+            elif rsi < 30:
+                confidence += 25
                 reasons.append(f"RSI oversold ({rsi:.1f})")
-            elif 40 <= rsi <= 60:
-                confidence += 15
+            elif 30 <= rsi <= 50:
+                confidence += 20
+                reasons.append(f"RSI optimal ({rsi:.1f})")
+            else:
+                # RSI 50-70: acceptable but not ideal
+                confidence += 10
                 reasons.append(f"RSI neutral ({rsi:.1f})")
             
-            # NEW: Bollinger Bands confirmation
-            if bb_lower and current_price <= bb_lower:
-                confidence += 15
-                reasons.append("Price at BB lower (oversold)")
-            elif bb_middle and current_price > bb_middle:
-                confidence += 5
-                reasons.append("Price above BB middle")
+            # NEW: Bollinger Bands confirmation (STRICTER)
+            if bb_lower and current_price <= bb_lower * 1.001:
+                confidence += 20
+                reasons.append("Price at BB lower (strong oversold)")
+            elif bb_middle and bb_lower:
+                distance_from_lower = (current_price - bb_lower) / (bb_middle - bb_lower)
+                if distance_from_lower < 0.3:
+                    confidence += 15
+                    reasons.append("Price near BB lower")
+                elif distance_from_lower > 0.7:
+                    confidence += 5
+                    reasons.append("Price in upper BB zone")
+                else:
+                    confidence += 10
+                    reasons.append("Price in middle BB zone")
             
-            # NEW: Stochastic confirmation
+            # NEW: Stochastic confirmation (STRICTER)
             if stoch_k < 20:
+                confidence += 20
+                reasons.append(f"Stochastic very oversold ({stoch_k:.1f})")
+            elif stoch_k < 30:
                 confidence += 15
                 reasons.append(f"Stochastic oversold ({stoch_k:.1f})")
             elif stoch_k < 50:
-                confidence += 5
-                reasons.append("Stochastic bullish zone")
-            
-            # NEW: ADX trend strength
-            if adx > 25:
-                confidence += 15
-                reasons.append(f"Strong trend (ADX {adx:.1f})")
-            elif adx > 20:
                 confidence += 8
-                reasons.append(f"Moderate trend (ADX {adx:.1f})")
-            
-            # NEW: Candlestick pattern
-            if pattern_name and "Bullish" in pattern_name or pattern_name in ["Morning Star", "Hammer"]:
-                confidence += pattern_boost
-                reasons.append(f"Pattern: {pattern_name}")
-        
-        else:  # SELL
-            # REQUIREMENT 1: Strong downtrend
-            if current_price < ma20 and current_price < ma50 and current_price < ema20:
-                if ma20 < ma50 and ema20 < ma20:
-                    confidence += 50
-                    reasons.append("Very strong downtrend")
-                elif ma20 < ma50:
-                    confidence += 35
-                    reasons.append("Strong downtrend")
-                else:
-                    confidence += 15
-                    reasons.append("Weak downtrend")
+                reasons.append("Stochastic bullish zone")
             else:
-                reject_reasons.append("NOT below MAs")
+                # Stochastic too high for BUY
+                confidence -= 5
+                reasons.append(f"Stochastic high ({stoch_k:.1f})")
+            
+            # NEW: ADX trend strength (STRICTER)
+            if adx > 30:
+                confidence += 20
+                reasons.append(f"Very strong trend (ADX {adx:.1f})")
+            elif adx > 25:
+                confidence += 10
+                reasons.append(f"Strong trend (ADX {adx:.1f})")
+            else:
+                # REJECT if trend not strong enough
+                reject_reasons.append(f"Weak trend (ADX {adx:.1f} < 25)")
                 return entry_price, 0, "REJECTED: " + ", ".join(reject_reasons), atr
             
-            # REQUIREMENT 2: Negative momentum
-            if momentum < -0.3:
-                confidence += 25
-                reasons.append(f"Strong momentum {momentum:.2f}%")
-            elif momentum < 0:
-                confidence += 10
-                reasons.append(f"Weak momentum {momentum:.2f}%")
+            # NEW: Candlestick pattern (BONUS)
+            if pattern_name and ("Bullish" in pattern_name or pattern_name in ["Morning Star", "Hammer"]):
+                confidence += pattern_boost
+                reasons.append(f"Pattern: {pattern_name}")
+            
+            # ADDITIONAL: Price action confirmation
+            # Check if current candle is bullish
+            if len(closes) >= 2 and closes[-1] > opens[-1]:
+                confidence += 5
+                reasons.append("Bullish candle")
+            
+            # Check for higher highs and higher lows (uptrend confirmation)
+            if len(highs) >= 3 and len(lows) >= 3:
+                if highs[-1] > highs[-2] and lows[-1] > lows[-2]:
+                    confidence += 10
+                    reasons.append("Higher highs & lows")
+                elif highs[-1] < highs[-2] or lows[-1] < lows[-2]:
+                    confidence -= 10
+                    reasons.append("Weak price structure")
+        
+        else:  # SELL
+            # REQUIREMENT 1: VERY Strong downtrend (STRICTER)
+            if current_price < ma20 and current_price < ma50 and current_price < ema20:
+                # MUST have perfect MA alignment
+                if ma20 < ma50 and ema20 < ma20:
+                    confidence += 50  # Very strong downtrend
+                    reasons.append("Perfect downtrend alignment")
+                else:
+                    # REJECT if MAs not perfectly aligned
+                    reject_reasons.append("MAs not aligned (need EMA20<MA20<MA50)")
+                    return entry_price, 0, "REJECTED: " + ", ".join(reject_reasons), atr
             else:
-                reject_reasons.append(f"Positive momentum")
+                reject_reasons.append("NOT below all MAs")
+                return entry_price, 0, "REJECTED: " + ", ".join(reject_reasons), atr
+            
+            # REQUIREMENT 2: STRONG Negative momentum (STRICTER)
+            if momentum < -0.5:
+                confidence += 30
+                reasons.append(f"Very strong momentum {momentum:.2f}%")
+            elif momentum < -0.3:
+                confidence += 20
+                reasons.append(f"Strong momentum {momentum:.2f}%")
+            else:
+                # REJECT if momentum not strong enough
+                reject_reasons.append(f"Weak momentum {momentum:.2f}% (need <-0.3%)")
                 return entry_price, 0, "REJECTED: " + ", ".join(reject_reasons), atr
             
             # REQUIREMENT 3: MACD bearish
@@ -579,45 +617,83 @@ class MultiAssetTradingBot:
                 confidence += 10
                 reasons.append("MACD bearish")
             
-            # REQUIREMENT 4: RSI check
-            if rsi < 25:
-                reject_reasons.append(f"RSI oversold ({rsi:.1f})")
+            # REQUIREMENT 4: RSI check (STRICTER)
+            if rsi < 30:
+                reject_reasons.append(f"RSI too low ({rsi:.1f} < 30)")
                 return entry_price, 0, "REJECTED: " + ", ".join(reject_reasons), atr
-            elif rsi > 60:
-                confidence += 20
+            elif rsi > 70:
+                confidence += 25
                 reasons.append(f"RSI overbought ({rsi:.1f})")
-            elif 40 <= rsi <= 60:
-                confidence += 15
+            elif 50 <= rsi <= 70:
+                confidence += 20
+                reasons.append(f"RSI optimal ({rsi:.1f})")
+            else:
+                # RSI 30-50: acceptable but not ideal
+                confidence += 10
                 reasons.append(f"RSI neutral ({rsi:.1f})")
             
-            # NEW: Bollinger Bands confirmation
-            if bb_upper and current_price >= bb_upper:
-                confidence += 15
-                reasons.append("Price at BB upper (overbought)")
-            elif bb_middle and current_price < bb_middle:
-                confidence += 5
-                reasons.append("Price below BB middle")
+            # NEW: Bollinger Bands confirmation (STRICTER)
+            if bb_upper and current_price >= bb_upper * 0.999:
+                confidence += 20
+                reasons.append("Price at BB upper (strong overbought)")
+            elif bb_middle and bb_upper:
+                distance_from_upper = (bb_upper - current_price) / (bb_upper - bb_middle)
+                if distance_from_upper < 0.3:
+                    confidence += 15
+                    reasons.append("Price near BB upper")
+                elif distance_from_upper > 0.7:
+                    confidence += 5
+                    reasons.append("Price in lower BB zone")
+                else:
+                    confidence += 10
+                    reasons.append("Price in middle BB zone")
             
-            # NEW: Stochastic confirmation
+            # NEW: Stochastic confirmation (STRICTER)
             if stoch_k > 80:
+                confidence += 20
+                reasons.append(f"Stochastic very overbought ({stoch_k:.1f})")
+            elif stoch_k > 70:
                 confidence += 15
                 reasons.append(f"Stochastic overbought ({stoch_k:.1f})")
             elif stoch_k > 50:
-                confidence += 5
-                reasons.append("Stochastic bearish zone")
-            
-            # NEW: ADX trend strength
-            if adx > 25:
-                confidence += 15
-                reasons.append(f"Strong trend (ADX {adx:.1f})")
-            elif adx > 20:
                 confidence += 8
-                reasons.append(f"Moderate trend (ADX {adx:.1f})")
+                reasons.append("Stochastic bearish zone")
+            else:
+                # Stochastic too low for SELL
+                confidence -= 5
+                reasons.append(f"Stochastic low ({stoch_k:.1f})")
             
-            # NEW: Candlestick pattern
+            # NEW: ADX trend strength (STRICTER)
+            if adx > 30:
+                confidence += 20
+                reasons.append(f"Very strong trend (ADX {adx:.1f})")
+            elif adx > 25:
+                confidence += 10
+                reasons.append(f"Strong trend (ADX {adx:.1f})")
+            else:
+                # REJECT if trend not strong enough
+                reject_reasons.append(f"Weak trend (ADX {adx:.1f} < 25)")
+                return entry_price, 0, "REJECTED: " + ", ".join(reject_reasons), atr
+            
+            # NEW: Candlestick pattern (BONUS)
             if pattern_name and ("Bearish" in pattern_name or pattern_name in ["Evening Star", "Shooting Star"]):
                 confidence += pattern_boost
                 reasons.append(f"Pattern: {pattern_name}")
+            
+            # ADDITIONAL: Price action confirmation
+            # Check if current candle is bearish
+            if len(closes) >= 2 and closes[-1] < opens[-1]:
+                confidence += 5
+                reasons.append("Bearish candle")
+            
+            # Check for lower highs and lower lows (downtrend confirmation)
+            if len(highs) >= 3 and len(lows) >= 3:
+                if highs[-1] < highs[-2] and lows[-1] < lows[-2]:
+                    confidence += 10
+                    reasons.append("Lower highs & lows")
+                elif highs[-1] > highs[-2] or lows[-1] > lows[-2]:
+                    confidence -= 10
+                    reasons.append("Weak price structure")
         
         reason = ", ".join(reasons) if reasons else "Basic signal"
         
@@ -752,6 +828,14 @@ class MultiAssetTradingBot:
     
     def execute_trade(self, symbol, signal, opportunity):
         """Execute trade with NO STOP LOSS"""
+        # CRITICAL: Check maximum position limit
+        all_positions = mt5.positions_get()
+        max_positions = 5  # Maximum 5 concurrent positions
+        
+        if all_positions and len(all_positions) >= max_positions:
+            logger.warning(f"⚠️  Maximum positions reached ({len(all_positions)}/{max_positions}) - SKIPPING")
+            return False
+        
         # Check for duplicate positions
         positions = mt5.positions_get(symbol=symbol)
         if positions:
@@ -772,10 +856,10 @@ class MultiAssetTradingBot:
         balance = account_info.balance
         equity = account_info.equity
         
-        # INCREASED LOT SIZE: Since NO SL, we can use larger positions
-        # Default risk increased from 2% to 5% per trade
-        risk_percent = self.config.get('risk_management', {}).get('risk_per_trade', 0.05)
-        risk_amount = equity * risk_percent  # Use equity instead of balance
+        # FIXED LOT SIZE: Conservative approach
+        # Risk reduced back to 2% per trade for better control
+        risk_percent = self.config.get('risk_management', {}).get('risk_per_trade', 0.02)
+        risk_amount = balance * risk_percent
         
         # Get pip size
         asset_type = self.asset_detector.get_asset_type(symbol)
@@ -808,26 +892,17 @@ class MultiAssetTradingBot:
         
         tp_distance = tp_pips * pip_size
         
-        # ENHANCED LOT CALCULATION: Much larger positions
-        # Calculate base lot from risk
-        base_lot = risk_amount / (tp_pips * pip_value_per_lot)
+        # FIXED LOT CALCULATION: Consistent and proportional
+        # Calculate lot based on risk amount and TP distance
+        lot = risk_amount / (tp_pips * pip_value_per_lot)
         
-        # MULTIPLY by 3x for larger positions (since no SL, we want meaningful size)
-        lot = base_lot * 3.0
-        
-        # For small accounts, ensure minimum meaningful lot size
-        if balance < 1000:
-            # Very small account: use at least 0.1 lot
-            lot = max(lot, 0.10)
-        elif balance < 5000:
-            # Small account: use at least 0.2 lot
-            lot = max(lot, 0.20)
-        elif balance < 10000:
-            # Medium account: use at least 0.5 lot
-            lot = max(lot, 0.50)
-        else:
-            # Large account: use at least 1.0 lot
-            lot = max(lot, 1.00)
+        # Scale lot size based on account size (no fixed minimums)
+        # Larger accounts naturally get larger lots
+        if balance >= 50000:
+            lot = lot * 2.0  # 2x for large accounts
+        elif balance >= 10000:
+            lot = lot * 1.5  # 1.5x for medium accounts
+        # Small accounts use base calculation (1x)
         
         # Apply broker limits
         lot = max(symbol_info.volume_min, min(lot, symbol_info.volume_max))
@@ -875,10 +950,10 @@ class MultiAssetTradingBot:
         logger.info(f"{'='*80}")
         logger.info(f"📐 Execution Price: {execution_price:.{digits}f}")
         logger.info(f"📐 TP: {tp_price:.{digits}f} ({tp_pips:.1f} pips)")
-        logger.info(f"📐 Lot Size: {lot:.2f} (3x multiplier applied)")
-        logger.info(f"📐 Risk: ${risk_amount:,.2f} ({risk_percent*100:.1f}% of equity)")
+        logger.info(f"📐 Lot Size: {lot:.2f}")
+        logger.info(f"📐 Risk: ${risk_amount:,.2f} ({risk_percent*100:.1f}% of balance)")
         logger.info(f"📐 Balance: ${balance:,.2f} | Equity: ${equity:,.2f}")
-        logger.info(f"⚠️  NO STOP LOSS - Unlimited Risk - LARGE POSITIONS")
+        logger.info(f"⚠️  NO STOP LOSS - Enhanced Strategy V3")
         
         # Check margin
         account_info = mt5.account_info()
@@ -901,7 +976,7 @@ class MultiAssetTradingBot:
             "tp": tp_price,
             "deviation": 20,
             "magic": 234000,
-            "comment": "Enhanced V2 - No SL",
+            "comment": "Enhanced V3 - Strict Strategy",
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": mt5.ORDER_FILLING_IOC,
         }
