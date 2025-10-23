@@ -634,16 +634,26 @@ class MultiAssetTradingBot:
             logger.warning(f"⚠️ {symbol} has failed {self.failed_symbols[symbol]} times - SKIPPING")
             return False
         
-        # CHECK FOR EXISTING PENDING ORDERS - Prevent duplicates!
+        # CHECK FOR EXISTING OPEN POSITIONS - Prevent duplicates!
+        # This is the CRITICAL fix - check actual positions, not just pending orders
+        open_positions = mt5.positions_get(symbol=symbol)
+        if open_positions:
+            for position in open_positions:
+                # Check if we already have an open position for this symbol and direction
+                position_type = "BUY" if position.type == mt5.POSITION_TYPE_BUY else "SELL"
+                if position_type == signal:
+                    logger.warning(f"[DUPLICATE PREVENTION] {signal} position already exists for {symbol} (Ticket #{position.ticket})")
+                    logger.warning(f"   Current P/L: ${position.profit:.2f} | Skipping to avoid duplicate")
+                    return False  # Don't place duplicate
+        
+        # Also check pending orders
         pending_orders = mt5.orders_get(symbol=symbol)
         if pending_orders:
             for order in pending_orders:
-                # Check if we already have a pending order for this symbol and direction
                 order_type_name = "BUY" if order.type in [mt5.ORDER_TYPE_BUY_LIMIT, mt5.ORDER_TYPE_BUY_STOP] else "SELL"
                 if order_type_name == signal:
-                    logger.warning(f"⚠️ Pending {signal} order already exists for {symbol} (Ticket #{order.ticket})")
-                    logger.warning(f"   Skipping to avoid duplicate orders")
-                    return False  # Don't place duplicate
+                    logger.warning(f"[DUPLICATE PREVENTION] Pending {signal} order exists for {symbol} (Ticket #{order.ticket})")
+                    return False
         
         # Get symbol info
         symbol_info = mt5.symbol_info(symbol)
