@@ -433,38 +433,26 @@ class AutoRetrainSystemV2:
             )
             xgb.fit(X_train_scaled, y_train_xgb, sample_weight=sample_weights, verbose=False)
             
-            logger.info("Training Gradient Boosting...")
-            gb = GradientBoostingClassifier(
-                n_estimators=100,  # Reduced from 200 for speed (GB is slowest)
-                max_depth=5,  # Reduced from 7 for speed
-                learning_rate=0.1,  # Increased from 0.05 for faster convergence
-                min_samples_split=15,
-                min_samples_leaf=8,
-                random_state=42,
-                verbose=0
-            )
-            gb.fit(X_train_scaled, y_train)
+            # Gradient Boosting removed for speed (XGBoost is better anyway)
+            # GB is single-threaded and very slow
             
-            # Evaluate all models
+            # Evaluate models
             rf_pred = rf.predict(X_test_scaled)
             xgb_pred_mapped = xgb.predict(X_test_scaled)
             # Convert XGBoost predictions back to -1, 0, 1
             xgb_pred = np.array([label_map_reverse[label] for label in xgb_pred_mapped])
-            gb_pred = gb.predict(X_test_scaled)
             
             rf_acc = accuracy_score(y_test, rf_pred)
             xgb_acc = accuracy_score(y_test, xgb_pred)
-            gb_acc = accuracy_score(y_test, gb_pred)
             
             logger.info(f"Random Forest Accuracy: {rf_acc:.4f}")
             logger.info(f"XGBoost Accuracy: {xgb_acc:.4f}")
-            logger.info(f"Gradient Boosting Accuracy: {gb_acc:.4f}")
             
             # Save models
             models_dir = Path('ml_models_simple')
             models_dir.mkdir(exist_ok=True)
             
-            ensemble = {'rf': rf, 'xgb': xgb, 'gb': gb, 'feature_columns': feature_columns}
+            ensemble = {'rf': rf, 'xgb': xgb, 'feature_columns': feature_columns}
             
             with open(models_dir / f"{symbol}_ensemble.pkl", 'wb') as f:
                 pickle.dump(ensemble, f)
@@ -473,10 +461,10 @@ class AutoRetrainSystemV2:
                 pickle.dump(scaler, f)
             
             logger.info(f"[SUCCESS] Model saved for {symbol}")
-            avg_acc = (rf_acc + xgb_acc + gb_acc) / 3
+            avg_acc = (rf_acc + xgb_acc) / 2
             logger.info(f"Average Accuracy: {avg_acc:.4f}")
-            logger.info(f"Best Model: {'RF' if rf_acc == max(rf_acc, xgb_acc, gb_acc) else 'XGB' if xgb_acc == max(rf_acc, xgb_acc, gb_acc) else 'GB'}")
-            logger.info(f"Best Accuracy: {max(rf_acc, xgb_acc, gb_acc):.4f}")
+            logger.info(f"Best Model: {'RF' if rf_acc > xgb_acc else 'XGB'}")
+            logger.info(f"Best Accuracy: {max(rf_acc, xgb_acc):.4f}")
             
             return True
             
