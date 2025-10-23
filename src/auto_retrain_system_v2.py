@@ -281,7 +281,9 @@ class AutoRetrainSystemV2:
         Uses adaptive thresholds based on symbol volatility:
         - Low volatility (major forex): 0.5%
         - Medium volatility (crosses, commodities): 0.7%
-        - High volatility (JPY pairs, crypto, metals): 1.0%
+        - High volatility (JPY pairs): 1.0%
+        - Metals (gold, silver): 1.5-2.0%
+        - Crypto (BTC, ETH): 2.5-3.0%
         """
         # Calculate future return over next 24 hours
         df['future_return'] = df['close'].pct_change(future_bars).shift(-future_bars)
@@ -291,8 +293,12 @@ class AutoRetrainSystemV2:
         low_vol_symbols = ['EURUSD', 'GBPUSD', 'USDCAD']
         # Medium volatility symbols (crosses, commodity currencies)
         med_vol_symbols = ['AUDUSD', 'NZDUSD', 'GBPJPY', 'AUDJPY']
-        # High volatility symbols (JPY pairs, crypto, metals)
-        high_vol_symbols = ['USDJPY', 'EURJPY', 'BTCUSD', 'ETHUSD', 'XAUUSD', 'XAGUSD']
+        # High volatility symbols (JPY pairs)
+        high_vol_symbols = ['USDJPY', 'EURJPY']
+        # Metals (gold, silver) - higher thresholds
+        metals_symbols = {'XAUUSD': 0.015, 'XAGUSD': 0.020}  # 1.5%, 2.0%
+        # Crypto (very high volatility) - much higher thresholds
+        crypto_symbols = {'BTCUSD': 0.030, 'ETHUSD': 0.025}  # 3.0%, 2.5%
         
         if symbol in low_vol_symbols:
             threshold = 0.005  # 0.5%
@@ -300,6 +306,10 @@ class AutoRetrainSystemV2:
             threshold = 0.007  # 0.7%
         elif symbol in high_vol_symbols:
             threshold = 0.010  # 1.0%
+        elif symbol in metals_symbols:
+            threshold = metals_symbols[symbol]
+        elif symbol in crypto_symbols:
+            threshold = crypto_symbols[symbol]
         else:
             # Default for unknown symbols
             threshold = 0.007  # 0.7%
