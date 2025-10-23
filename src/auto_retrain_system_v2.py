@@ -89,52 +89,70 @@ class AutoRetrainSystemV2:
             return symbols
     
     def collect_fresh_data(self, symbol, days=None):
-        """Collect fresh market data with progressive fallback"""
+        """Collect fresh market data using chunked requests to bypass MT5 limits"""
         logger.info(f"Collecting fresh data for {symbol}...")
         
-        # Try different time periods in order of preference
-        # MT5 has limits on max bars per request (typically 100k-500k)
-        time_periods = [
-            (3650, "10 years"),  # 1,051,200 bars - ideal
-            (1825, "5 years"),   # 525,600 bars
-            (1095, "3 years"),   # 315,360 bars
-            (730, "2 years"),    # 210,240 bars
-            (365, "1 year"),     # 105,120 bars
-            (180, "6 months"),   # 51,840 bars
-        ]
+        # Target: Get as much data as possible (up to 10 years)
+        if days is None:
+            days = 3650  # 10 years
         
-        rates = None
-        bars_needed = 0
-        period_name = ""
+        # MT5 has a hard limit of ~100,000 bars per request
+        # For M5: 100,000 bars = ~347 days
+        # So we'll request in chunks and combine them
         
-        for days, name in time_periods:
-            bars_needed = days * 288  # M5: 288 bars per day
-            logger.info(f"Trying {bars_needed:,} M5 bars ({name}) for {symbol}...")
+        max_bars_per_request = 99999  # Stay under MT5's limit
+        bars_per_day = 288  # M5 timeframe
+        total_bars_needed = days * bars_per_day
+        
+        logger.info(f"Requesting {total_bars_needed:,} M5 bars ({days/365:.1f} years) for {symbol} in chunks...")
+        
+        all_rates = []
+        bars_collected = 0
+        chunk_num = 0
+        
+        while bars_collected < total_bars_needed:
+            chunk_num += 1
+            bars_to_request = min(max_bars_per_request, total_bars_needed - bars_collected)
             
-            rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, bars_needed)
+            # Request data starting from position bars_collected
+            rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, bars_collected, bars_to_request)
             
-            if rates is not None and len(rates) > 0:
-                period_name = name
-                logger.info(f"✓ Successfully retrieved data for {name}")
+            if rates is None or len(rates) == 0:
+                # No more data available
+                if chunk_num == 1:
+                    logger.error(f"✗ No data available for {symbol}")
+                    return None
+                else:
+                    logger.info(f"✓ Reached end of available data at chunk {chunk_num}")
+                    break
+            
+            all_rates.append(rates)
+            bars_collected += len(rates)
+            
+            logger.info(f"  Chunk {chunk_num}: Collected {len(rates):,} bars (total: {bars_collected:,})")
+            
+            # If we got fewer bars than requested, we've reached the end
+            if len(rates) < bars_to_request:
+                logger.info(f"✓ Collected all available data ({bars_collected:,} bars)")
                 break
-            else:
-                logger.warning(f"✗ Failed to get {name} data, trying shorter period...")
         
-        if rates is None or len(rates) == 0:
-            logger.error(f"✗ No data available for {symbol} even with 6 months request")
+        # Combine all chunks
+        if len(all_rates) == 0:
+            logger.error(f"✗ No data collected for {symbol}")
             return None
         
-        df = pd.DataFrame(rates)
+        combined_rates = np.concatenate(all_rates)
+        df = pd.DataFrame(combined_rates)
         df['time'] = pd.to_datetime(df['time'], unit='s')
         
-        # Calculate how many days of data we actually got (M5 = 288 bars per day)
-        actual_days = len(df) / 288
+        # Remove duplicates (in case of overlap)
+        df = df.drop_duplicates(subset=['time'], keep='first')
+        df = df.sort_values('time').reset_index(drop=True)
+        
+        # Calculate how many days of data we actually got
+        actual_days = len(df) / bars_per_day
         actual_years = actual_days / 365
         logger.info(f"✓ Collected {len(df):,} M5 bars for {symbol} (~{actual_days:.0f} days / {actual_years:.1f} years)")
-        
-        # Warn if we got significantly less than requested
-        if len(df) < bars_needed * 0.5:
-            logger.warning(f"⚠ Got only {len(df):,} bars, requested {bars_needed:,} ({period_name})")
         
         return df
     
