@@ -55,27 +55,39 @@ class AutoRetrainSystem:
         return True
     
     def collect_fresh_data(self, symbol, days=None):
-        """Collect fresh market data - maximum available (10 years preferred)"""
+        """Collect fresh market data with progressive fallback"""
         logger.info(f"Collecting fresh data for {symbol}...")
         
-        # If days not specified, try to get 10 years of data
-        if days is None:
-            days = 3650  # 10 years
+        # Try different time periods in order of preference
+        # MT5 has limits on max bars per request (typically 100k-500k)
+        time_periods = [
+            (3650, "10 years"),  # 1,051,200 bars - ideal
+            (1825, "5 years"),   # 525,600 bars
+            (1095, "3 years"),   # 315,360 bars
+            (730, "2 years"),    # 210,240 bars
+            (365, "1 year"),     # 105,120 bars
+            (180, "6 months"),   # 51,840 bars
+        ]
         
-        # Calculate bars needed for M5 timeframe (288 bars per day)
-        bars_needed = days * 288  # 5-min bars: 12 per hour * 24 hours = 288 per day
+        rates = None
+        bars_needed = 0
+        period_name = ""
         
-        # Try to get M5 data
-        logger.info(f"Requesting {bars_needed:,} M5 bars ({days/365:.1f} years) for {symbol}...")
-        rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, bars_needed)
-        
-        # If we got less than requested, log what we actually got
-        if rates is not None and len(rates) < bars_needed:
-            actual_days = len(rates) / 288
-            logger.info(f"Got {len(rates):,} bars (~{actual_days:.0f} days / {actual_days/365:.1f} years) - using maximum available")
+        for days, name in time_periods:
+            bars_needed = days * 288  # M5: 288 bars per day
+            logger.info(f"Trying {bars_needed:,} M5 bars ({name}) for {symbol}...")
+            
+            rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, bars_needed)
+            
+            if rates is not None and len(rates) > 0:
+                period_name = name
+                logger.info(f"✓ Successfully retrieved data for {name}")
+                break
+            else:
+                logger.warning(f"✗ Failed to get {name} data, trying shorter period...")
         
         if rates is None or len(rates) == 0:
-            logger.error(f"No data for {symbol}")
+            logger.error(f"✗ No data available for {symbol} even with 6 months request")
             return None
         
         df = pd.DataFrame(rates)
@@ -85,6 +97,11 @@ class AutoRetrainSystem:
         actual_days = len(df) / 288
         actual_years = actual_days / 365
         logger.info(f"✓ Collected {len(df):,} M5 bars for {symbol} (~{actual_days:.0f} days / {actual_years:.1f} years)")
+        
+        # Warn if we got significantly less than requested
+        if len(df) < bars_needed * 0.5:
+            logger.warning(f"⚠ Got only {len(df):,} bars, requested {bars_needed:,} ({period_name})")
+        
         return df
     
     def calculate_indicators(self, df):
