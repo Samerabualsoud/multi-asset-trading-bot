@@ -15,8 +15,8 @@ risk_per_trade: 0.02  # 2% risk per trade
 max_positions: 5  # Maximum concurrent positions
 min_confidence: 0.70  # Minimum confidence to trade (70%)
 
-# LLM Settings
-llm_enabled: true  # Enable/disable LLM analyst
+# LLM Settings (DISABLED for performance - ML models are 80% accurate)
+llm_enabled: false  # Enable/disable LLM analyst (disabled = 10x faster)
 llm_model: "deepseek-chat"
 llm_temperature: 0.3
 
