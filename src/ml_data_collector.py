@@ -323,6 +323,21 @@ if __name__ == "__main__":
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
     
-    collector = MLDataCollector()
+    # All 15 symbols: major forex, crypto, metals, oil
+    all_symbols = [
+        # Major Forex
+        'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'NZDUSD',
+        'EURJPY', 'GBPJPY', 'AUDJPY',
+        # Major Crypto
+        'BTCUSD', 'ETHUSD',
+        # Metals
+        'XAUUSD',  # Gold
+        'XAGUSD',  # Silver
+        # Oil
+        'USOIL',   # WTI Crude
+        'UKOIL'    # Brent Crude
+    ]
+    
+    collector = MLDataCollector(symbols=all_symbols)
     datasets = collector.collect_all_data(years=3)
 

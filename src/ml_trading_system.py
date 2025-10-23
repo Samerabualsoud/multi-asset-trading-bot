@@ -153,7 +153,9 @@ class MLTradingSystem:
         
         all_hourly_stats = []
         
-        for symbol in self.symbols[:5]:  # Analyze top 5 symbols for speed
+        # Analyze all symbols for comprehensive hour optimization
+        logger.info(f"Analyzing {len(self.symbols)} symbols...")
+        for symbol in self.symbols:
             stats = self.analyze_hourly_performance(symbol)
             if stats is not None:
                 stats['symbol'] = symbol

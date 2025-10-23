@@ -352,11 +352,23 @@ if __name__ == "__main__":
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
     
-    # Train models for major symbols
-    symbols = ['EURUSD', 'GBPUSD', 'USDJPY']
+    # All 15 symbols: major forex, crypto, metals, oil
+    all_symbols = [
+        # Major Forex
+        'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'NZDUSD',
+        'EURJPY', 'GBPJPY', 'AUDJPY',
+        # Major Crypto
+        'BTCUSD', 'ETHUSD',
+        # Metals
+        'XAUUSD',  # Gold
+        'XAGUSD',  # Silver
+        # Oil
+        'USOIL',   # WTI Crude
+        'UKOIL'    # Brent Crude
+    ]
     
     trainer = MLModelTrainer()
-    results = trainer.train_all_symbols(symbols)
+    results = trainer.train_all_symbols(all_symbols)
     
     # Save models
     trainer.save_models()
@@ -365,4 +377,10 @@ if __name__ == "__main__":
     logger.info("TRAINING COMPLETE")
     logger.info("="*100)
     logger.info(f"Trained models for {len(results)} symbols")
+    
+    # Print summary
+    logger.info("\nModel Performance Summary:")
+    for symbol, result in results.items():
+        metrics = result['metrics']
+        logger.info(f"  {symbol}: Test Accuracy = {metrics['test_accuracy']:.4f}, F1 = {metrics['f1']:.4f}")
 
