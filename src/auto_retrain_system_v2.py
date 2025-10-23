@@ -208,6 +208,10 @@ class AutoRetrainSystemV2:
             df[f'bb_lower_{period}'] = sma - (2 * std)
             df[f'bb_width_{period}'] = (df[f'bb_upper_{period}'] - df[f'bb_lower_{period}']) / sma
         
+        # Bollinger Band position (0-1, where price is between bands)
+        bb_range = df['bb_upper_20'] - df['bb_lower_20']
+        df['bb_position'] = (df['close'] - df['bb_lower_20']) / (bb_range + 1e-10)
+        
         # ATR
         for period in [7, 14, 21]:
             high_low = df['high'] - df['low']
@@ -287,7 +291,10 @@ class AutoRetrainSystemV2:
         
         # Interaction features (RSI × MACD)
         df['rsi_macd'] = df['rsi_14'] * df['macd']
-        df['rsi_bb_position'] = df['rsi_14'] * df['bb_position']
+        if 'bb_position' in df.columns:
+            df['rsi_bb_position'] = df['rsi_14'] * df['bb_position']
+        else:
+            df['rsi_bb_position'] = 0
         
         # Lagged features (previous bars)
         for lag in [1, 2, 3]:
