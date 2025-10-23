@@ -273,8 +273,9 @@ class MLLLMTradingBotV3:
         model_data = self.models[symbol]
         if isinstance(model_data, dict) and 'feature_columns' in model_data:
             feature_cols = model_data['feature_columns']
-            rf_model = model_data['rf']
-            gb_model = model_data['gb']
+            rf_model = model_data.get('rf')
+            xgb_model = model_data.get('xgb')  # XGBoost (new)
+            gb_model = model_data.get('gb')    # Gradient Boosting (legacy)
         else:
             # Fallback: exclude non-feature columns
             exclude_cols = ['time', 'open', 'high', 'low', 'close', 'tick_volume', 'spread', 'real_volume']
@@ -293,13 +294,21 @@ class MLLLMTradingBotV3:
         rf_pred_proba = rf_model.predict_proba(X)[0]
         rf_pred = rf_model.predict(X)[0]
         
-        if gb_model:
+        # Use XGBoost if available (preferred), otherwise Gradient Boosting (legacy)
+        if xgb_model:
+            xgb_pred_proba = xgb_model.predict_proba(X)[0]
+            xgb_pred = xgb_model.predict(X)[0]
+            # Average RF and XGBoost predictions
+            pred_proba = (rf_pred_proba + xgb_pred_proba) / 2
+            prediction = rf_pred if rf_pred == xgb_pred else rf_pred  # Use RF if disagreement
+        elif gb_model:
             gb_pred_proba = gb_model.predict_proba(X)[0]
             gb_pred = gb_model.predict(X)[0]
-            # Average predictions
+            # Average RF and GB predictions
             pred_proba = (rf_pred_proba + gb_pred_proba) / 2
             prediction = rf_pred if rf_pred == gb_pred else rf_pred  # Use RF if disagreement
         else:
+            # Use RF only
             pred_proba = rf_pred_proba
             prediction = rf_pred
         
