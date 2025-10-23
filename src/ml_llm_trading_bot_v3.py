@@ -142,7 +142,7 @@ class MLLLMTradingBotV3:
         logger.info(f"[OK] Connected to MT5: {self.config['mt5_server']}")
         return True
     
-    def get_market_data(self, symbol, timeframe=mt5.TIMEFRAME_H1, bars=500):
+    def get_market_data(self, symbol, timeframe=mt5.TIMEFRAME_M5, bars=2000):
         """Get recent market data"""
         rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, bars)
         

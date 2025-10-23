@@ -41,14 +41,14 @@ class EnhancedSymbolDiscovery:
     def check_liquidity(self, symbol, min_bars=100):
         """Check if symbol has sufficient liquidity and data"""
         try:
-            # Check H1 data availability
-            rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, min_bars)
+            # Check M5 data availability (min_bars * 12 for M5 vs H1)
+            rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, min_bars * 12)
             if rates is None or len(rates) < min_bars:
-                return False, "Insufficient H1 data"
+                return False, "Insufficient M5 data"
             
-            # Check recent activity (last 24 hours)
-            recent_rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, 24)
-            if recent_rates is None or len(recent_rates) < 20:
+            # Check recent activity (last 24 hours = 288 M5 bars)
+            recent_rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, 288)
+            if recent_rates is None or len(recent_rates) < 240:  # At least 20 hours of M5 data
                 return False, "Low recent activity"
             
             # Check tick data availability
@@ -63,9 +63,9 @@ class EnhancedSymbolDiscovery:
     def get_symbol_stats(self, symbol):
         """Get trading statistics for symbol"""
         try:
-            # Get 7 days of data
-            rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, 168)
-            if rates is None or len(rates) < 100:
+            # Get 7 days of M5 data (7 * 288 = 2016 bars)
+            rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, 2016)
+            if rates is None or len(rates) < 1200:  # At least ~4 days
                 return None
             
             df = pd.DataFrame(rates)

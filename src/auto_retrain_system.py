@@ -54,12 +54,25 @@ class AutoRetrainSystem:
             return False
         return True
     
-    def collect_fresh_data(self, symbol, days=365):
-        """Collect fresh market data"""
+    def collect_fresh_data(self, symbol, days=None):
+        """Collect fresh market data - maximum available (10 years preferred)"""
         logger.info(f"Collecting fresh data for {symbol}...")
         
-        # Get data
-        rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, days * 24)
+        # If days not specified, try to get 10 years of data
+        if days is None:
+            days = 3650  # 10 years
+        
+        # Calculate bars needed for M5 timeframe (288 bars per day)
+        bars_needed = days * 288  # 5-min bars: 12 per hour * 24 hours = 288 per day
+        
+        # Try to get M5 data
+        logger.info(f"Requesting {bars_needed:,} M5 bars ({days/365:.1f} years) for {symbol}...")
+        rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, bars_needed)
+        
+        # If we got less than requested, log what we actually got
+        if rates is not None and len(rates) < bars_needed:
+            actual_days = len(rates) / 288
+            logger.info(f"Got {len(rates):,} bars (~{actual_days:.0f} days / {actual_days/365:.1f} years) - using maximum available")
         
         if rates is None or len(rates) == 0:
             logger.error(f"No data for {symbol}")
@@ -68,7 +81,10 @@ class AutoRetrainSystem:
         df = pd.DataFrame(rates)
         df['time'] = pd.to_datetime(df['time'], unit='s')
         
-        logger.info(f"Collected {len(df)} bars for {symbol}")
+        # Calculate how many days of data we actually got (M5 = 288 bars per day)
+        actual_days = len(df) / 288
+        actual_years = actual_days / 365
+        logger.info(f"✓ Collected {len(df):,} M5 bars for {symbol} (~{actual_days:.0f} days / {actual_years:.1f} years)")
         return df
     
     def calculate_indicators(self, df):
