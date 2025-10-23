@@ -270,45 +270,6 @@ class AutoRetrainSystemV2:
         df['inside_bar'] = ((df['high'] < df['high'].shift(1)) & (df['low'] > df['low'].shift(1))).astype(int)
         df['outside_bar'] = ((df['high'] > df['high'].shift(1)) & (df['low'] < df['low'].shift(1))).astype(int)
         
-        # Advanced features for better accuracy
-        # Candlestick patterns
-        body = abs(df['close'] - df['open'])
-        range_bar = df['high'] - df['low']
-        df['body_ratio'] = body / (range_bar + 1e-10)  # Avoid division by zero
-        df['upper_shadow'] = df['high'] - df[['close', 'open']].max(axis=1)
-        df['lower_shadow'] = df[['close', 'open']].min(axis=1) - df['low']
-        df['is_bullish'] = (df['close'] > df['open']).astype(int)
-        
-        # Volume analysis
-        df['volume_ma_5'] = df['tick_volume'].rolling(5).mean()
-        df['volume_ma_20'] = df['tick_volume'].rolling(20).mean()
-        df['volume_ratio'] = df['tick_volume'] / (df['volume_ma_20'] + 1)
-        
-        # Price momentum over multiple periods
-        for period in [3, 6, 12, 24]:
-            df[f'momentum_{period}'] = df['close'].pct_change(period)
-            df[f'volatility_{period}'] = df['close'].pct_change().rolling(period).std()
-        
-        # Interaction features (RSI × MACD)
-        df['rsi_macd'] = df['rsi_14'] * df['macd']
-        if 'bb_position' in df.columns:
-            df['rsi_bb_position'] = df['rsi_14'] * df['bb_position']
-        else:
-            df['rsi_bb_position'] = 0
-        
-        # Lagged features (previous bars)
-        for lag in [1, 2, 3]:
-            df[f'close_lag_{lag}'] = df['close'].shift(lag)
-            df[f'volume_lag_{lag}'] = df['tick_volume'].shift(lag)
-            df[f'rsi_lag_{lag}'] = df['rsi_14'].shift(lag)
-        
-        # Rolling statistics
-        for window in [10, 20, 50]:
-            df[f'close_mean_{window}'] = df['close'].rolling(window).mean()
-            df[f'close_std_{window}'] = df['close'].rolling(window).std()
-            df[f'close_min_{window}'] = df['close'].rolling(window).min()
-            df[f'close_max_{window}'] = df['close'].rolling(window).max()
-        
         return df
     
     def create_labels(self, df, future_bars=48):
