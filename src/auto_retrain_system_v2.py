@@ -89,16 +89,17 @@ class AutoRetrainSystemV2:
             return symbols
     
     def collect_fresh_data(self, symbol, days=None):
-        """Collect maximum available M30 data (up to 10 years)"""
+        """Collect maximum available M30 data (200K bars = ~11 years)"""
         logger.info(f"Collecting fresh data for {symbol}...")
         
-        # Target: Get as much data as possible (up to 10 years)
-        if days is None:
-            days = 3650  # 10 years
+        # Target: 200,000 bars (2 chunks of 100K each)
+        # M30: 48 bars/day, so 200K bars = 4,166 days = 11.4 years
+        target_bars = 200000
+        bars_per_day = 48  # M30 timeframe
         
-        # Try M30 data first (48 bars per day)
-        logger.info(f"Attempting M30 data collection for {symbol} (up to 10 years)...")
-        df_m30 = self._collect_data_chunked(symbol, mt5.TIMEFRAME_M30, days, bars_per_day=48)
+        # Try M30 data first
+        logger.info(f"Attempting M30 data collection for {symbol} ({target_bars:,} bars = ~11 years)...")
+        df_m30 = self._collect_data_by_bars(symbol, mt5.TIMEFRAME_M30, target_bars, bars_per_day)
         
         if df_m30 is not None:
             m30_days = len(df_m30) / 48
@@ -108,7 +109,8 @@ class AutoRetrainSystemV2:
         
         # Only fall back to H1 if M30 completely failed
         logger.warning(f"⚠ M30 data unavailable, trying H1 as fallback...")
-        df_h1 = self._collect_data_chunked(symbol, mt5.TIMEFRAME_H1, days, bars_per_day=24)
+        # For H1, request 10 years = 87,600 bars (under 100K limit, single chunk)
+        df_h1 = self._collect_data_by_bars(symbol, mt5.TIMEFRAME_H1, 87600, 24)
         
         if df_h1 is not None:
             h1_days = len(df_h1) / 24
@@ -119,10 +121,9 @@ class AutoRetrainSystemV2:
         logger.error(f"✗ No data available for {symbol}")
         return None
     
-    def _collect_data_chunked(self, symbol, timeframe, days, bars_per_day):
+    def _collect_data_by_bars(self, symbol, timeframe, total_bars_needed, bars_per_day):
         """Helper function to collect data in chunks for any timeframe"""
         max_bars_per_request = 99999  # Stay under MT5's limit
-        total_bars_needed = days * bars_per_day
         
         if bars_per_day == 48:
             timeframe_name = "M30"
