@@ -708,15 +708,32 @@ class MultiAssetTradingBot:
         session, vol_mult, min_confidence = self.get_session_info()
         atr = opportunity.get('atr', 0)
         
-        # Base SL/TP
-        base_sl_pips = 25
-        base_tp_pips = 50
+        # Base SL/TP (asset-specific)
+        asset_type = self.asset_detector.get_asset_type(symbol)
+        
+        if asset_type == 'crypto':
+            # Crypto needs MUCH wider stops due to high volatility and price
+            base_sl_pips = 150  # $150 for BTC, $15 for ETH, etc.
+            base_tp_pips = 300
+        elif 'TRY' in symbol or 'MXN' in symbol or 'ZAR' in symbol:
+            # Exotic pairs
+            base_sl_pips = 50
+            base_tp_pips = 100
+        else:
+            # Standard forex
+            base_sl_pips = 25
+            base_tp_pips = 50
         
         # Apply ATR-based adjustment if available
         if atr > 0:
             atr_pips = atr / pip_size
-            # Use ATR but cap it
-            base_sl_pips = min(max(20, atr_pips * 1.5), 40)
+            # Use ATR but cap it (different caps for different assets)
+            if asset_type == 'crypto':
+                base_sl_pips = min(max(100, atr_pips * 1.5), 300)  # 100-300 pips for crypto
+            elif 'TRY' in symbol or 'MXN' in symbol or 'ZAR' in symbol:
+                base_sl_pips = min(max(40, atr_pips * 1.5), 100)  # 40-100 pips for exotics
+            else:
+                base_sl_pips = min(max(20, atr_pips * 1.5), 40)  # 20-40 pips for forex
             base_tp_pips = base_sl_pips * 2
         
         # Apply session multiplier
