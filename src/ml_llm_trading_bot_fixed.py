@@ -390,6 +390,131 @@ Provide your analysis in JSON format:
         
         return result
     
+    def get_open_positions(self):
+        """Get currently open positions"""
+        positions = mt5.positions_get()
+        if positions is None:
+            return []
+        return [pos.symbol for pos in positions]
+    
+    def calculate_lot_size(self, symbol, risk_percent=0.02):
+        """Calculate lot size based on account balance and risk"""
+        account_info = mt5.account_info()
+        if account_info is None:
+            return 0.01
+        
+        balance = account_info.balance
+        risk_amount = balance * risk_percent
+        
+        # Get symbol info
+        symbol_info = mt5.symbol_info(symbol)
+        if symbol_info is None:
+            return 0.01
+        
+        # Calculate lot size (simplified)
+        # Risk amount / (pip value * stop loss pips)
+        # Since we have no SL, use a reasonable default based on balance
+        if balance < 1000:
+            return 0.01
+        elif balance < 5000:
+            return 0.05
+        elif balance < 10000:
+            return 0.10
+        else:
+            return 0.20
+    
+    def place_trade(self, signal_data):
+        """Place a trade based on signal"""
+        symbol = signal_data['symbol']
+        signal = signal_data['llm_signal']
+        confidence = signal_data['llm_confidence']
+        
+        # Check if already have position
+        open_positions = self.get_open_positions()
+        if symbol in open_positions:
+            logger.info(f"[SKIP] Already have open position for {symbol}")
+            return False
+        
+        # Check max positions
+        max_pos = self.config.get('max_positions', 5)
+        if len(open_positions) >= max_pos:
+            logger.info(f"[SKIP] Max positions reached ({len(open_positions)}/{max_pos})")
+            return False
+        
+        # Get symbol info
+        symbol_info = mt5.symbol_info(symbol)
+        if symbol_info is None:
+            logger.error(f"[ERROR] Symbol info not found: {symbol}")
+            return False
+        
+        if not symbol_info.visible:
+            if not mt5.symbol_select(symbol, True):
+                logger.error(f"[ERROR] Failed to select symbol: {symbol}")
+                return False
+        
+        # Get current price
+        tick = mt5.symbol_info_tick(symbol)
+        if tick is None:
+            logger.error(f"[ERROR] Failed to get tick for {symbol}")
+            return False
+        
+        # Determine order type and price
+        if signal == "BUY":
+            order_type = mt5.ORDER_TYPE_BUY
+            price = tick.ask
+            # TP: 2% above entry (no SL)
+            tp = price * 1.02
+            sl = 0.0  # NO STOP LOSS
+        else:  # SELL
+            order_type = mt5.ORDER_TYPE_SELL
+            price = tick.bid
+            # TP: 2% below entry (no SL)
+            tp = price * 0.98
+            sl = 0.0  # NO STOP LOSS
+        
+        # Calculate lot size
+        risk_percent = self.config.get('risk_per_trade', 0.02)
+        lot = self.calculate_lot_size(symbol, risk_percent)
+        
+        # Prepare request
+        request = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "symbol": symbol,
+            "volume": lot,
+            "type": order_type,
+            "price": price,
+            "sl": sl,
+            "tp": tp,
+            "deviation": 20,
+            "magic": 234000,
+            "comment": f"ML+LLM {confidence:.0%}",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        }
+        
+        # Send order
+        result = mt5.order_send(request)
+        
+        if result is None:
+            logger.error(f"[ERROR] Order send failed: {mt5.last_error()}")
+            return False
+        
+        if result.retcode != mt5.TRADE_RETCODE_DONE:
+            logger.error(f"[ERROR] Order failed: {result.retcode} - {result.comment}")
+            return False
+        
+        logger.info(f"\n[SUCCESS] Trade placed!")
+        logger.info(f"   Symbol: {symbol}")
+        logger.info(f"   Type: {signal}")
+        logger.info(f"   Lot: {lot}")
+        logger.info(f"   Price: {price:.5f}")
+        logger.info(f"   TP: {tp:.5f}")
+        logger.info(f"   SL: None (NO STOP LOSS)")
+        logger.info(f"   Ticket: {result.order}")
+        logger.info(f"   Confidence: {confidence:.1%}")
+        
+        return True
+    
     def run(self):
         """Main trading loop"""
         logger.info("\n" + "="*80)
@@ -422,8 +547,13 @@ Provide your analysis in JSON format:
                             logger.info(f"   Confidence: {result['llm_confidence']:.1%}")
                             logger.info(f"   Reasoning: {result['reasoning']}")
                             
-                            # Here you would place the actual trade
-                            # self.place_trade(result)
+                            # Check confidence threshold
+                            min_conf = self.config.get('min_confidence', 0.70)
+                            if result['llm_confidence'] >= min_conf:
+                                logger.info(f"\n[TRADE] Confidence {result['llm_confidence']:.1%} >= {min_conf:.0%}, placing trade...")
+                                self.place_trade(result)
+                            else:
+                                logger.info(f"\n[SKIP] Confidence {result['llm_confidence']:.1%} < {min_conf:.0%}, not trading")
                         
                     except Exception as e:
                         logger.error(f"Error analyzing {symbol}: {e}", exc_info=True)
