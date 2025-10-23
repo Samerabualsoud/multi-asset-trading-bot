@@ -393,17 +393,16 @@ class AutoRetrainSystemV2:
             class_weight_dict = dict(zip(classes, class_weights))
             logger.info(f"Class weights: {class_weight_dict}")
             
-            # Train ensemble with optimized models (balanced speed vs accuracy)
+            # Train ensemble with maximum accuracy settings
             logger.info("Training Random Forest...")
             rf = RandomForestClassifier(
-                n_estimators=150,  # Reduced from 200 for speed
-                max_depth=12,  # Reduced from 15 for speed
-                min_samples_split=15,  # Increased for speed
-                min_samples_leaf=8,  # Increased for speed
-                class_weight='balanced',  # Handle imbalance
+                n_estimators=200,
+                max_depth=15,
+                min_samples_split=10,
+                min_samples_leaf=5,
+                class_weight='balanced',
                 random_state=42,
-                n_jobs=-1,
-                verbose=0
+                n_jobs=-1
             )
             rf.fit(X_train_scaled, y_train)
             
@@ -421,17 +420,16 @@ class AutoRetrainSystemV2:
             sample_weights = np.array([class_weight_dict_xgb[label] for label in y_train_xgb])
             
             xgb = XGBClassifier(
-                n_estimators=150,  # Reduced from 200 for speed
-                max_depth=6,  # Reduced from 8 for speed
-                learning_rate=0.1,  # Increased from 0.05 for faster convergence
+                n_estimators=200,
+                max_depth=8,
+                learning_rate=0.05,
                 subsample=0.8,
                 colsample_bytree=0.8,
                 random_state=42,
                 n_jobs=-1,
-                eval_metric='mlogloss',
-                verbosity=0
+                eval_metric='mlogloss'
             )
-            xgb.fit(X_train_scaled, y_train_xgb, sample_weight=sample_weights, verbose=False)
+            xgb.fit(X_train_scaled, y_train_xgb, sample_weight=sample_weights)
             
             # Gradient Boosting removed for speed (XGBoost is better anyway)
             # GB is single-threaded and very slow
