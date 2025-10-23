@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-ML + LLM Trading Bot
-Uses trained ML models + LLM Trading Analyst for final decisions
+ML + LLM Trading Bot (Fixed)
+- Complete feature calculation (matches training)
+- 15 second scan interval
+- No emoji characters (Windows compatible)
 """
 
 import MetaTrader5 as mt5
@@ -38,16 +40,20 @@ class MLLLMTradingBot:
         """Initialize LLM client (DeepSeek)"""
         api_key = self.config.get('deepseek_api_key', '')
         
-        if not api_key:
-            logger.warning("⚠️ DeepSeek API key not found in config!")
-            logger.warning("LLM analyst will be disabled")
+        if not api_key or api_key == 'YOUR_DEEPSEEK_API_KEY_HERE':
+            logger.warning("[WARNING] DeepSeek API key not configured!")
+            logger.warning("LLM analyst will be disabled. Add API key to config.yaml")
             return
         
-        self.llm_client = OpenAI(
-            api_key=api_key,
-            base_url="https://api.deepseek.com"
-        )
-        logger.info("[OK] LLM client initialized (DeepSeek)")
+        try:
+            self.llm_client = OpenAI(
+                api_key=api_key,
+                base_url="https://api.deepseek.com"
+            )
+            logger.info("[OK] LLM client initialized (DeepSeek)")
+        except Exception as e:
+            logger.error(f"Failed to initialize LLM: {e}")
+            self.llm_client = None
     
     def load_all_models(self):
         """Load all trained ML models"""
@@ -100,17 +106,32 @@ class MLLLMTradingBot:
         return df
     
     def calculate_indicators(self, df):
-        """Calculate technical indicators (same as training)"""
+        """Calculate ALL technical indicators (matches training exactly)"""
         data = df.copy()
         
-        # Basic features
+        # Basic price features
         data['returns'] = data['close'].pct_change()
+        data['log_returns'] = np.log(data['close'] / data['close'].shift(1))
         data['hl_ratio'] = (data['high'] - data['low']) / data['close']
+        data['co_ratio'] = (data['close'] - data['open']) / data['open']
         
-        # Moving averages
+        # Moving Averages
         for period in [5, 10, 20, 50, 100, 200]:
             data[f'sma_{period}'] = data['close'].rolling(period).mean()
             data[f'ema_{period}'] = data['close'].ewm(span=period).mean()
+        
+        # MA relationships
+        data['sma_20_50_ratio'] = data['sma_20'] / data['sma_50']
+        data['price_sma_20_ratio'] = data['close'] / data['sma_20']
+        data['price_sma_50_ratio'] = data['close'] / data['sma_50']
+        
+        # Bollinger Bands
+        data['bb_middle'] = data['close'].rolling(20).mean()
+        data['bb_std'] = data['close'].rolling(20).std()
+        data['bb_upper'] = data['bb_middle'] + (data['bb_std'] * 2)
+        data['bb_lower'] = data['bb_middle'] - (data['bb_std'] * 2)
+        data['bb_width'] = (data['bb_upper'] - data['bb_lower']) / data['bb_middle']
+        data['bb_position'] = (data['close'] - data['bb_lower']) / (data['bb_upper'] - data['bb_lower'])
         
         # RSI
         delta = data['close'].diff()
@@ -118,6 +139,7 @@ class MLLLMTradingBot:
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         rs = gain / loss
         data['rsi'] = 100 - (100 / (1 + rs))
+        data['rsi_sma'] = data['rsi'].rolling(14).mean()
         
         # MACD
         data['ema_12'] = data['close'].ewm(span=12).mean()
@@ -126,12 +148,11 @@ class MLLLMTradingBot:
         data['macd_signal'] = data['macd'].ewm(span=9).mean()
         data['macd_diff'] = data['macd'] - data['macd_signal']
         
-        # Bollinger Bands
-        data['bb_middle'] = data['close'].rolling(20).mean()
-        data['bb_std'] = data['close'].rolling(20).std()
-        data['bb_upper'] = data['bb_middle'] + (data['bb_std'] * 2)
-        data['bb_lower'] = data['bb_middle'] - (data['bb_std'] * 2)
-        data['bb_width'] = (data['bb_upper'] - data['bb_lower']) / data['bb_middle']
+        # Stochastic
+        low_14 = data['low'].rolling(14).min()
+        high_14 = data['high'].rolling(14).max()
+        data['stoch_k'] = 100 * (data['close'] - low_14) / (high_14 - low_14)
+        data['stoch_d'] = data['stoch_k'].rolling(3).mean()
         
         # ATR
         data['tr1'] = data['high'] - data['low']
@@ -139,6 +160,7 @@ class MLLLMTradingBot:
         data['tr3'] = abs(data['low'] - data['close'].shift())
         data['tr'] = data[['tr1', 'tr2', 'tr3']].max(axis=1)
         data['atr'] = data['tr'].rolling(14).mean()
+        data['atr_percent'] = data['atr'] / data['close']
         
         # ADX
         data['plus_dm'] = data['high'].diff()
@@ -150,28 +172,57 @@ class MLLLMTradingBot:
         data['dx'] = 100 * abs(data['plus_di'] - data['minus_di']) / (data['plus_di'] + data['minus_di'])
         data['adx'] = data['dx'].rolling(14).mean()
         
-        # Stochastic
-        low_14 = data['low'].rolling(14).min()
-        high_14 = data['high'].rolling(14).max()
-        data['stoch_k'] = 100 * (data['close'] - low_14) / (high_14 - low_14)
-        data['stoch_d'] = data['stoch_k'].rolling(3).mean()
-        
-        # Volume
+        # Volume features
         data['volume_sma'] = data['tick_volume'].rolling(20).mean()
         data['volume_ratio'] = data['tick_volume'] / data['volume_sma']
+        data['volume_price_trend'] = (data['close'].diff() / data['close'].shift()) * data['tick_volume']
+        
+        # Momentum
+        for period in [5, 10, 20]:
+            data[f'momentum_{period}'] = data['close'].pct_change(period)
+            data[f'roc_{period}'] = ((data['close'] - data['close'].shift(period)) / data['close'].shift(period)) * 100
+        
+        # Volatility
+        for period in [10, 20, 50]:
+            data[f'volatility_{period}'] = data['returns'].rolling(period).std()
+        
+        # Price channels
+        data['high_20'] = data['high'].rolling(20).max()
+        data['low_20'] = data['low'].rolling(20).min()
+        data['channel_position'] = (data['close'] - data['low_20']) / (data['high_20'] - data['low_20'])
+        
+        # Fibonacci levels
+        data['fib_high'] = data['high'].rolling(100).max()
+        data['fib_low'] = data['low'].rolling(100).min()
+        data['fib_range'] = data['fib_high'] - data['fib_low']
+        data['fib_0'] = data['fib_high']
+        data['fib_236'] = data['fib_high'] - (data['fib_range'] * 0.236)
+        data['fib_382'] = data['fib_high'] - (data['fib_range'] * 0.382)
+        data['fib_500'] = data['fib_high'] - (data['fib_range'] * 0.500)
+        data['fib_618'] = data['fib_high'] - (data['fib_range'] * 0.618)
+        data['fib_1000'] = data['fib_low']
         
         # Time features
         data['hour'] = data.index.hour
         data['day_of_week'] = data.index.dayofweek
+        data['day_of_month'] = data.index.day
+        data['month'] = data.index.month
         
-        # Sessions
+        # Session indicators
         data['asian_session'] = ((data['hour'] >= 0) & (data['hour'] < 8)).astype(int)
         data['london_session'] = ((data['hour'] >= 8) & (data['hour'] < 16)).astype(int)
         data['ny_session'] = ((data['hour'] >= 13) & (data['hour'] < 21)).astype(int)
+        data['overlap_session'] = ((data['hour'] >= 13) & (data['hour'] < 16)).astype(int)
         
-        # Trends
+        # Trend indicators
         data['trend_20'] = np.where(data['close'] > data['sma_20'], 1, -1)
         data['trend_50'] = np.where(data['close'] > data['sma_50'], 1, -1)
+        data['trend_strength'] = abs(data['close'] - data['sma_50']) / data['sma_50']
+        
+        # Drop intermediate columns
+        cols_to_drop = ['tr1', 'tr2', 'tr3', 'tr', 'plus_dm', 'minus_dm', 'dx',
+                       'ema_12', 'ema_26', 'bb_std']
+        data = data.drop(columns=[c for c in cols_to_drop if c in data.columns])
         
         return data.dropna()
     
@@ -188,6 +239,9 @@ class MLLLMTradingBot:
         
         # Calculate indicators
         df_features = self.calculate_indicators(df)
+        
+        if len(df_features) == 0:
+            return None, None
         
         # Get latest row
         latest = df_features.iloc[-1]
@@ -220,7 +274,6 @@ class MLLLMTradingBot:
     def get_llm_analysis(self, symbol, ml_signal, ml_confidence, market_data):
         """Get LLM trading analyst review"""
         if self.llm_client is None:
-            logger.warning("LLM client not initialized, skipping LLM analysis")
             return ml_signal, ml_confidence, "LLM not available"
         
         try:
@@ -282,7 +335,7 @@ Provide your analysis in JSON format:
             reasoning = result['reasoning']
             risk = result['risk_level']
             
-            logger.info(f"\n🤖 LLM Analysis for {symbol}:")
+            logger.info(f"\n[LLM] Analysis for {symbol}:")
             logger.info(f"   ML: {ml_signal} ({ml_confidence:.1%})")
             logger.info(f"   LLM: {final_signal} ({final_confidence:.1%})")
             logger.info(f"   Risk: {risk}")
@@ -307,7 +360,7 @@ Provide your analysis in JSON format:
             logger.warning(f"ML prediction failed for {symbol}")
             return None
         
-        logger.info(f"📊 ML Prediction: {ml_signal} (confidence: {ml_confidence:.1%})")
+        logger.info(f"[ML] Prediction: {ml_signal} (confidence: {ml_confidence:.1%})")
         
         # Get market data for LLM
         df = self.get_market_data(symbol)
@@ -337,6 +390,7 @@ Provide your analysis in JSON format:
         logger.info("="*80)
         logger.info(f"Models loaded: {len(self.models)}")
         logger.info(f"LLM enabled: {self.llm_client is not None}")
+        logger.info(f"Scan interval: 15 seconds")
         logger.info("="*80)
         
         # Initialize MT5
@@ -356,7 +410,7 @@ Provide your analysis in JSON format:
                         result = self.analyze_symbol(symbol)
                         
                         if result and result['llm_signal'] != 'SKIP':
-                            logger.info(f"\n✅ TRADE SIGNAL: {symbol}")
+                            logger.info(f"\n[SIGNAL] {symbol}")
                             logger.info(f"   Signal: {result['llm_signal']}")
                             logger.info(f"   Confidence: {result['llm_confidence']:.1%}")
                             logger.info(f"   Reasoning: {result['reasoning']}")
@@ -368,11 +422,11 @@ Provide your analysis in JSON format:
                         logger.error(f"Error analyzing {symbol}: {e}", exc_info=True)
                         continue
                 
-                logger.info(f"\n⏸️ Waiting 1 hour for next scan...")
-                time.sleep(3600)  # Wait 1 hour
+                logger.info(f"\n[WAIT] Next scan in 15 seconds...")
+                time.sleep(15)  # Wait 15 seconds
                 
         except KeyboardInterrupt:
-            logger.info("\n🛑 Bot stopped by user")
+            logger.info("\n[STOP] Bot stopped by user")
         finally:
             mt5.shutdown()
 
