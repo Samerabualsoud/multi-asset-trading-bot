@@ -56,6 +56,6 @@ symbols:
 timeframe: H1  # Hourly
 
 # Logging
-log_level: INFO
+log_level: DEBUG  # Show all symbols including HOLD signals
 log_file: "ml_llm_bot.log"
 

@@ -414,7 +414,12 @@ Should we trade? Provide your analysis."""
             # Get ML prediction
             ml_signal, ml_confidence = self.get_ml_prediction(symbol)
             
-            if ml_signal is None or ml_signal == "SKIP":
+            if ml_signal is None:
+                return None
+            
+            if ml_signal == "SKIP":
+                # Log HOLD signals so user knows all symbols are being analyzed
+                logger.debug(f"[HOLD] {symbol}: Model predicts HOLD (no trade)")
                 return None
             
             # Get market data for LLM
