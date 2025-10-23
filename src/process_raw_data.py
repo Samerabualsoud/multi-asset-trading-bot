@@ -140,6 +140,15 @@ class RawDataProcessor:
         data['trend_50'] = np.where(data['close'] > data['sma_50'], 1, -1)
         data['trend_strength'] = abs(data['close'] - data['sma_50']) / data['sma_50']
         
+        # Generate labels (BUY=1, SELL=-1, HOLD=0)
+        # Look ahead 24 hours (1 day) to determine if price goes up or down
+        future_return = data['close'].shift(-24).pct_change(24)
+        threshold = 0.002  # 0.2% threshold
+        
+        data['label'] = 0  # Default: HOLD
+        data.loc[future_return > threshold, 'label'] = 1  # BUY
+        data.loc[future_return < -threshold, 'label'] = -1  # SELL
+        
         # Drop intermediate columns
         cols_to_drop = ['tr1', 'tr2', 'tr3', 'tr', 'plus_dm', 'minus_dm', 'dx',
                        'ema_12', 'ema_26', 'bb_std']
