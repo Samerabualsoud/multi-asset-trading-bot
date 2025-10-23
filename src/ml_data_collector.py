@@ -293,8 +293,8 @@ class MLDataCollector:
         
         return df
     
-    def collect_all_data(self, years=3):
-        """Collect data for all symbols"""
+    def collect_all_data(self, years=10):
+        """Collect data for all symbols (10 years for better ML performance)"""
         logger.info("\n" + "="*100)
         logger.info("COLLECTING DATA FOR ALL SYMBOLS")
         logger.info("="*100)
