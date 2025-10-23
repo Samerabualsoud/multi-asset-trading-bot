@@ -92,7 +92,7 @@ class MLLLMTradingBot:
         logger.info(f"[OK] Connected to MT5: {self.config['mt5_server']}")
         return True
     
-    def get_market_data(self, symbol, timeframe=mt5.TIMEFRAME_H1, bars=200):
+    def get_market_data(self, symbol, timeframe=mt5.TIMEFRAME_H1, bars=500):
         """Get recent market data"""
         rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, bars)
         
@@ -366,10 +366,17 @@ Provide your analysis in JSON format:
         df = self.get_market_data(symbol)
         df_features = self.calculate_indicators(df)
         
-        # Get LLM analysis
-        final_signal, final_confidence, reasoning = self.get_llm_analysis(
-            symbol, ml_signal, ml_confidence, df_features
-        )
+        # Check if we have enough data
+        if len(df_features) < 2:
+            logger.warning(f"Not enough data for LLM analysis ({len(df_features)} rows)")
+            final_signal = ml_signal
+            final_confidence = ml_confidence
+            reasoning = "Insufficient data for LLM analysis"
+        else:
+            # Get LLM analysis
+            final_signal, final_confidence, reasoning = self.get_llm_analysis(
+                symbol, ml_signal, ml_confidence, df_features
+            )
         
         result = {
             'symbol': symbol,
