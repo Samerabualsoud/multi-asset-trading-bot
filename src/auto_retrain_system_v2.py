@@ -272,19 +272,40 @@ class AutoRetrainSystemV2:
         
         return df
     
-    def create_labels(self, df, future_bars=48):
+    def create_labels(self, df, future_bars=48, symbol=''):
         """Create trading labels (1=buy, -1=sell, 0=hold)
         
         For M30 timeframe: 48 bars = 24 hours (1 day)
         For H1 timeframe: 24 bars = 24 hours (1 day)
+        
+        Uses adaptive thresholds based on symbol volatility:
+        - Low volatility (major forex): 0.5%
+        - Medium volatility (crosses, commodities): 0.7%
+        - High volatility (JPY pairs, crypto, metals): 1.0%
         """
         # Calculate future return over next 24 hours
         df['future_return'] = df['close'].pct_change(future_bars).shift(-future_bars)
         
-        # Use fixed percentage thresholds (more reliable than volatility-based)
-        # 0.5% move in 24 hours is a clear directional signal
-        buy_threshold = 0.005  # 0.5% gain
-        sell_threshold = -0.005  # 0.5% loss
+        # Adaptive thresholds based on symbol characteristics
+        # Low volatility symbols (major forex pairs)
+        low_vol_symbols = ['EURUSD', 'GBPUSD', 'USDCAD']
+        # Medium volatility symbols (crosses, commodity currencies)
+        med_vol_symbols = ['AUDUSD', 'NZDUSD', 'GBPJPY', 'AUDJPY']
+        # High volatility symbols (JPY pairs, crypto, metals)
+        high_vol_symbols = ['USDJPY', 'EURJPY', 'BTCUSD', 'ETHUSD', 'XAUUSD', 'XAGUSD']
+        
+        if symbol in low_vol_symbols:
+            threshold = 0.005  # 0.5%
+        elif symbol in med_vol_symbols:
+            threshold = 0.007  # 0.7%
+        elif symbol in high_vol_symbols:
+            threshold = 0.010  # 1.0%
+        else:
+            # Default for unknown symbols
+            threshold = 0.007  # 0.7%
+        
+        buy_threshold = threshold
+        sell_threshold = -threshold
         
         # Create labels
         df['label'] = 0  # Default: HOLD
@@ -320,8 +341,8 @@ class AutoRetrainSystemV2:
             # Calculate indicators
             df = self.calculate_indicators(df)
             
-            # Create labels
-            df = self.create_labels(df)
+            # Create labels with symbol-specific thresholds
+            df = self.create_labels(df, symbol=symbol)
             
             # Drop NaN
             df = df.dropna()
