@@ -393,16 +393,17 @@ class AutoRetrainSystemV2:
             class_weight_dict = dict(zip(classes, class_weights))
             logger.info(f"Class weights: {class_weight_dict}")
             
-            # Train ensemble with improved models
+            # Train ensemble with optimized models (balanced speed vs accuracy)
             logger.info("Training Random Forest...")
             rf = RandomForestClassifier(
-                n_estimators=200,  # Increased from 100
-                max_depth=15,  # Increased from 10
-                min_samples_split=10,  # Decreased for more splits
-                min_samples_leaf=5,  # Decreased for more leaves
+                n_estimators=150,  # Reduced from 200 for speed
+                max_depth=12,  # Reduced from 15 for speed
+                min_samples_split=15,  # Increased for speed
+                min_samples_leaf=8,  # Increased for speed
                 class_weight='balanced',  # Handle imbalance
                 random_state=42,
-                n_jobs=-1
+                n_jobs=-1,
+                verbose=0
             )
             rf.fit(X_train_scaled, y_train)
             
@@ -420,25 +421,27 @@ class AutoRetrainSystemV2:
             sample_weights = np.array([class_weight_dict_xgb[label] for label in y_train_xgb])
             
             xgb = XGBClassifier(
-                n_estimators=200,
-                max_depth=8,
-                learning_rate=0.05,
+                n_estimators=150,  # Reduced from 200 for speed
+                max_depth=6,  # Reduced from 8 for speed
+                learning_rate=0.1,  # Increased from 0.05 for faster convergence
                 subsample=0.8,
                 colsample_bytree=0.8,
                 random_state=42,
                 n_jobs=-1,
-                eval_metric='mlogloss'
+                eval_metric='mlogloss',
+                verbosity=0
             )
-            xgb.fit(X_train_scaled, y_train_xgb, sample_weight=sample_weights)
+            xgb.fit(X_train_scaled, y_train_xgb, sample_weight=sample_weights, verbose=False)
             
             logger.info("Training Gradient Boosting...")
             gb = GradientBoostingClassifier(
-                n_estimators=200,  # Increased from 100
-                max_depth=7,  # Increased from 5
-                learning_rate=0.05,  # Decreased for better convergence
-                min_samples_split=10,
-                min_samples_leaf=5,
-                random_state=42
+                n_estimators=100,  # Reduced from 200 for speed (GB is slowest)
+                max_depth=5,  # Reduced from 7 for speed
+                learning_rate=0.1,  # Increased from 0.05 for faster convergence
+                min_samples_split=15,
+                min_samples_leaf=8,
+                random_state=42,
+                verbose=0
             )
             gb.fit(X_train_scaled, y_train)
             
