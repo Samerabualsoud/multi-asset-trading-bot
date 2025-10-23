@@ -407,8 +407,18 @@ class AutoRetrainSystemV2:
             rf.fit(X_train_scaled, y_train)
             
             logger.info("Training XGBoost...")
-            # Convert class weights for XGBoost
-            sample_weights = np.array([class_weight_dict[label] for label in y_train])
+            # XGBoost requires labels to be 0, 1, 2 (not -1, 0, 1)
+            # Map: -1 (SELL) -> 0, 0 (HOLD) -> 1, 1 (BUY) -> 2
+            label_map = {-1: 0, 0: 1, 1: 2}
+            label_map_reverse = {0: -1, 1: 0, 2: 1}
+            
+            y_train_xgb = np.array([label_map[label] for label in y_train])
+            y_test_xgb = np.array([label_map[label] for label in y_test])
+            
+            # Convert class weights for XGBoost (using mapped labels)
+            class_weight_dict_xgb = {label_map[k]: v for k, v in class_weight_dict.items()}
+            sample_weights = np.array([class_weight_dict_xgb[label] for label in y_train_xgb])
+            
             xgb = XGBClassifier(
                 n_estimators=200,
                 max_depth=8,
@@ -419,7 +429,7 @@ class AutoRetrainSystemV2:
                 n_jobs=-1,
                 eval_metric='mlogloss'
             )
-            xgb.fit(X_train_scaled, y_train, sample_weight=sample_weights)
+            xgb.fit(X_train_scaled, y_train_xgb, sample_weight=sample_weights)
             
             logger.info("Training Gradient Boosting...")
             gb = GradientBoostingClassifier(
@@ -434,7 +444,9 @@ class AutoRetrainSystemV2:
             
             # Evaluate all models
             rf_pred = rf.predict(X_test_scaled)
-            xgb_pred = xgb.predict(X_test_scaled)
+            xgb_pred_mapped = xgb.predict(X_test_scaled)
+            # Convert XGBoost predictions back to -1, 0, 1
+            xgb_pred = np.array([label_map_reverse[label] for label in xgb_pred_mapped])
             gb_pred = gb.predict(X_test_scaled)
             
             rf_acc = accuracy_score(y_test, rf_pred)
