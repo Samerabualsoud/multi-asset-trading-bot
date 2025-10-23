@@ -348,20 +348,13 @@ class AutoRetrainSystemV2:
             X_train_scaled = scaler.fit_transform(X_train)
             X_test_scaled = scaler.transform(X_test)
             
-            # Calculate class weights to handle imbalance
-            classes = np.unique(y_train)
-            class_weights = compute_class_weight('balanced', classes=classes, y=y_train)
-            class_weight_dict = dict(zip(classes, class_weights))
-            logger.info(f"Class weights: {class_weight_dict}")
-            
-            # Train ensemble with maximum accuracy settings
+            # Train ensemble without class weights (they hurt accuracy!)
             logger.info("Training Random Forest...")
             rf = RandomForestClassifier(
                 n_estimators=200,
                 max_depth=15,
                 min_samples_split=10,
                 min_samples_leaf=5,
-                class_weight='balanced',
                 random_state=42,
                 n_jobs=-1
             )
@@ -376,10 +369,6 @@ class AutoRetrainSystemV2:
             y_train_xgb = np.array([label_map[label] for label in y_train])
             y_test_xgb = np.array([label_map[label] for label in y_test])
             
-            # Convert class weights for XGBoost (using mapped labels)
-            class_weight_dict_xgb = {label_map[k]: v for k, v in class_weight_dict.items()}
-            sample_weights = np.array([class_weight_dict_xgb[label] for label in y_train_xgb])
-            
             xgb = XGBClassifier(
                 n_estimators=200,
                 max_depth=8,
@@ -390,7 +379,7 @@ class AutoRetrainSystemV2:
                 n_jobs=-1,
                 eval_metric='mlogloss'
             )
-            xgb.fit(X_train_scaled, y_train_xgb, sample_weight=sample_weights)
+            xgb.fit(X_train_scaled, y_train_xgb)
             
             # Gradient Boosting removed for speed (XGBoost is better anyway)
             # GB is single-threaded and very slow
