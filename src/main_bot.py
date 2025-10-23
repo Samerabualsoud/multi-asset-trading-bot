@@ -770,8 +770,12 @@ class MultiAssetTradingBot:
         # Calculate position size
         account_info = mt5.account_info()
         balance = account_info.balance
-        risk_percent = self.config.get('risk_management', {}).get('risk_per_trade', 0.02)
-        risk_amount = balance * risk_percent
+        equity = account_info.equity
+        
+        # INCREASED LOT SIZE: Since NO SL, we can use larger positions
+        # Default risk increased from 2% to 5% per trade
+        risk_percent = self.config.get('risk_management', {}).get('risk_per_trade', 0.05)
+        risk_amount = equity * risk_percent  # Use equity instead of balance
         
         # Get pip size
         asset_type = self.asset_detector.get_asset_type(symbol)
@@ -804,8 +808,26 @@ class MultiAssetTradingBot:
         
         tp_distance = tp_pips * pip_size
         
-        # Since NO SL, use TP distance for lot calculation
-        lot = risk_amount / (tp_pips * pip_value_per_lot)
+        # ENHANCED LOT CALCULATION: Much larger positions
+        # Calculate base lot from risk
+        base_lot = risk_amount / (tp_pips * pip_value_per_lot)
+        
+        # MULTIPLY by 3x for larger positions (since no SL, we want meaningful size)
+        lot = base_lot * 3.0
+        
+        # For small accounts, ensure minimum meaningful lot size
+        if balance < 1000:
+            # Very small account: use at least 0.1 lot
+            lot = max(lot, 0.10)
+        elif balance < 5000:
+            # Small account: use at least 0.2 lot
+            lot = max(lot, 0.20)
+        elif balance < 10000:
+            # Medium account: use at least 0.5 lot
+            lot = max(lot, 0.50)
+        else:
+            # Large account: use at least 1.0 lot
+            lot = max(lot, 1.00)
         
         # Apply broker limits
         lot = max(symbol_info.volume_min, min(lot, symbol_info.volume_max))
@@ -853,9 +875,10 @@ class MultiAssetTradingBot:
         logger.info(f"{'='*80}")
         logger.info(f"📐 Execution Price: {execution_price:.{digits}f}")
         logger.info(f"📐 TP: {tp_price:.{digits}f} ({tp_pips:.1f} pips)")
-        logger.info(f"📐 Lot Size: {lot:.2f}")
-        logger.info(f"📐 Risk: ${risk_amount:,.2f} ({risk_percent*100:.1f}%)")
-        logger.info(f"⚠️  NO STOP LOSS - Unlimited Risk")
+        logger.info(f"📐 Lot Size: {lot:.2f} (3x multiplier applied)")
+        logger.info(f"📐 Risk: ${risk_amount:,.2f} ({risk_percent*100:.1f}% of equity)")
+        logger.info(f"📐 Balance: ${balance:,.2f} | Equity: ${equity:,.2f}")
+        logger.info(f"⚠️  NO STOP LOSS - Unlimited Risk - LARGE POSITIONS")
         
         # Check margin
         account_info = mt5.account_info()
