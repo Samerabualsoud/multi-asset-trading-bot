@@ -266,18 +266,35 @@ class AutoRetrainSystemV2:
         
         return df
     
-    def create_labels(self, df, future_bars=24):
-        """Create trading labels (1=buy, -1=sell, 0=hold)"""
+    def create_labels(self, df, future_bars=48):
+        """Create trading labels (1=buy, -1=sell, 0=hold)
+        
+        For M30 timeframe: 48 bars = 24 hours (1 day)
+        For H1 timeframe: 24 bars = 24 hours (1 day)
+        """
+        # Calculate future return over next 24 hours
         df['future_return'] = df['close'].pct_change(future_bars).shift(-future_bars)
         
-        # Define thresholds based on volatility
-        volatility = df['close'].pct_change().std()
-        buy_threshold = volatility * 1.5
-        sell_threshold = -volatility * 1.5
+        # Use fixed percentage thresholds (more reliable than volatility-based)
+        # 0.5% move in 24 hours is a clear directional signal
+        buy_threshold = 0.005  # 0.5% gain
+        sell_threshold = -0.005  # 0.5% loss
         
-        df['label'] = 0
-        df.loc[df['future_return'] > buy_threshold, 'label'] = 1
-        df.loc[df['future_return'] < sell_threshold, 'label'] = -1
+        # Create labels
+        df['label'] = 0  # Default: HOLD
+        df.loc[df['future_return'] > buy_threshold, 'label'] = 1  # BUY
+        df.loc[df['future_return'] < sell_threshold, 'label'] = -1  # SELL
+        
+        # Log label distribution for debugging
+        if len(df) > 0:
+            buy_count = (df['label'] == 1).sum()
+            sell_count = (df['label'] == -1).sum()
+            hold_count = (df['label'] == 0).sum()
+            total = len(df.dropna(subset=['label']))
+            if total > 0:
+                logger.info(f"Label distribution: BUY={buy_count} ({buy_count/total*100:.1f}%), "
+                          f"SELL={sell_count} ({sell_count/total*100:.1f}%), "
+                          f"HOLD={hold_count} ({hold_count/total*100:.1f}%)")
         
         return df
     

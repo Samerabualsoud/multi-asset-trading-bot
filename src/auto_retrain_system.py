@@ -224,10 +224,27 @@ class AutoRetrainSystem:
         df['ema_sma_cross'] = (df['ema_20'] > df['sma_20']).astype(int)
         
         # Create labels (BUY/SELL based on future price)
-        future_return = df['close'].shift(-24) / df['close'] - 1
-        df['label'] = 0
-        df.loc[future_return > 0.002, 'label'] = 1  # BUY
-        df.loc[future_return < -0.002, 'label'] = -1  # SELL
+        # For M30: 48 bars = 24 hours, For H1: 24 bars = 24 hours
+        future_bars = 48  # M30 timeframe
+        future_return = df['close'].shift(-future_bars) / df['close'] - 1
+        
+        # Use 0.5% threshold (clear directional signal)
+        buy_threshold = 0.005  # 0.5% gain
+        sell_threshold = -0.005  # 0.5% loss
+        
+        df['label'] = 0  # Default: HOLD
+        df.loc[future_return > buy_threshold, 'label'] = 1  # BUY
+        df.loc[future_return < sell_threshold, 'label'] = -1  # SELL
+        
+        # Log label distribution
+        buy_count = (df['label'] == 1).sum()
+        sell_count = (df['label'] == -1).sum()
+        hold_count = (df['label'] == 0).sum()
+        total = len(df[df['label'].notna()])
+        if total > 0:
+            logger.info(f"Label distribution: BUY={buy_count} ({buy_count/total*100:.1f}%), "
+                      f"SELL={sell_count} ({sell_count/total*100:.1f}%), "
+                      f"HOLD={hold_count} ({hold_count/total*100:.1f}%)")
         
         # Drop NaN
         df = df.dropna()
