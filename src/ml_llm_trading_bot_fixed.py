@@ -401,27 +401,43 @@ Provide your analysis in JSON format:
         """Calculate lot size based on account balance and risk"""
         account_info = mt5.account_info()
         if account_info is None:
-            return 0.01
+            return 0.10
         
         balance = account_info.balance
-        risk_amount = balance * risk_percent
+        equity = account_info.equity
+        
+        # Use equity for calculation (more accurate)
+        risk_amount = equity * risk_percent
         
         # Get symbol info
         symbol_info = mt5.symbol_info(symbol)
         if symbol_info is None:
-            return 0.01
-        
-        # Calculate lot size (simplified)
-        # Risk amount / (pip value * stop loss pips)
-        # Since we have no SL, use a reasonable default based on balance
-        if balance < 1000:
-            return 0.01
-        elif balance < 5000:
-            return 0.05
-        elif balance < 10000:
             return 0.10
+        
+        # More aggressive lot sizing
+        # Base calculation: risk_amount / 100 (simplified)
+        base_lot = risk_amount / 100
+        
+        # Apply multiplier for more meaningful positions
+        lot = base_lot * 5.0  # 5x multiplier
+        
+        # Enforce minimums based on balance
+        if balance < 1000:
+            lot = max(lot, 0.10)
+        elif balance < 5000:
+            lot = max(lot, 0.50)
+        elif balance < 10000:
+            lot = max(lot, 1.00)
         else:
-            return 0.20
+            lot = max(lot, 2.00)
+        
+        # Round to 2 decimal places
+        lot = round(lot, 2)
+        
+        # Ensure minimum
+        lot = max(lot, 0.10)
+        
+        return lot
     
     def place_trade(self, signal_data):
         """Place a trade based on signal"""
