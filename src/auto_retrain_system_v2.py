@@ -89,22 +89,52 @@ class AutoRetrainSystemV2:
             return symbols
     
     def collect_fresh_data(self, symbol, days=None):
-        """Collect fresh market data using chunked requests to bypass MT5 limits"""
+        """Collect fresh market data with smart M5/H1 hybrid approach"""
         logger.info(f"Collecting fresh data for {symbol}...")
         
         # Target: Get as much data as possible (up to 10 years)
         if days is None:
             days = 3650  # 10 years
         
-        # MT5 has a hard limit of ~100,000 bars per request
-        # For M5: 100,000 bars = ~347 days
-        # So we'll request in chunks and combine them
+        # First, try M5 data
+        logger.info(f"Attempting M5 data collection for {symbol}...")
+        df_m5 = self._collect_data_chunked(symbol, mt5.TIMEFRAME_M5, days, bars_per_day=288)
         
+        if df_m5 is not None:
+            m5_days = len(df_m5) / 288
+            m5_years = m5_days / 365
+            
+            # If we got at least 2 years of M5 data, use it
+            if m5_years >= 2.0:
+                logger.info(f"✓ Using M5 data: {len(df_m5):,} bars ({m5_years:.1f} years)")
+                return df_m5
+            else:
+                logger.warning(f"⚠ M5 data limited to {m5_years:.1f} years, trying H1 for more history...")
+        
+        # Fallback to H1 if M5 is limited or unavailable
+        logger.info(f"Attempting H1 data collection for {symbol}...")
+        df_h1 = self._collect_data_chunked(symbol, mt5.TIMEFRAME_H1, days, bars_per_day=24)
+        
+        if df_h1 is not None:
+            h1_days = len(df_h1) / 24
+            h1_years = h1_days / 365
+            logger.info(f"✓ Using H1 data: {len(df_h1):,} bars ({h1_years:.1f} years)")
+            return df_h1
+        
+        # If both failed, return M5 data if we have any
+        if df_m5 is not None:
+            logger.warning(f"⚠ H1 also failed, using limited M5 data ({m5_years:.1f} years)")
+            return df_m5
+        
+        logger.error(f"✗ No data available for {symbol}")
+        return None
+    
+    def _collect_data_chunked(self, symbol, timeframe, days, bars_per_day):
+        """Helper function to collect data in chunks for any timeframe"""
         max_bars_per_request = 99999  # Stay under MT5's limit
-        bars_per_day = 288  # M5 timeframe
         total_bars_needed = days * bars_per_day
         
-        logger.info(f"Requesting {total_bars_needed:,} M5 bars ({days/365:.1f} years) for {symbol} in chunks...")
+        timeframe_name = "M5" if bars_per_day == 288 else "H1"
         
         all_rates = []
         bars_collected = 0
@@ -115,30 +145,24 @@ class AutoRetrainSystemV2:
             bars_to_request = min(max_bars_per_request, total_bars_needed - bars_collected)
             
             # Request data starting from position bars_collected
-            rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, bars_collected, bars_to_request)
+            rates = mt5.copy_rates_from_pos(symbol, timeframe, bars_collected, bars_to_request)
             
             if rates is None or len(rates) == 0:
                 # No more data available
                 if chunk_num == 1:
-                    logger.error(f"✗ No data available for {symbol}")
                     return None
                 else:
-                    logger.info(f"✓ Reached end of available data at chunk {chunk_num}")
                     break
             
             all_rates.append(rates)
             bars_collected += len(rates)
             
-            logger.info(f"  Chunk {chunk_num}: Collected {len(rates):,} bars (total: {bars_collected:,})")
-            
             # If we got fewer bars than requested, we've reached the end
             if len(rates) < bars_to_request:
-                logger.info(f"✓ Collected all available data ({bars_collected:,} bars)")
                 break
         
         # Combine all chunks
         if len(all_rates) == 0:
-            logger.error(f"✗ No data collected for {symbol}")
             return None
         
         combined_rates = np.concatenate(all_rates)
@@ -148,11 +172,6 @@ class AutoRetrainSystemV2:
         # Remove duplicates (in case of overlap)
         df = df.drop_duplicates(subset=['time'], keep='first')
         df = df.sort_values('time').reset_index(drop=True)
-        
-        # Calculate how many days of data we actually got
-        actual_days = len(df) / bars_per_day
-        actual_years = actual_days / 365
-        logger.info(f"✓ Collected {len(df):,} M5 bars for {symbol} (~{actual_days:.0f} days / {actual_years:.1f} years)")
         
         return df
     
