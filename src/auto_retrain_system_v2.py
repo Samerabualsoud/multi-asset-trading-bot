@@ -278,41 +278,61 @@ class AutoRetrainSystemV2:
         For M30 timeframe: 48 bars = 24 hours (1 day)
         For H1 timeframe: 24 bars = 24 hours (1 day)
         
-        Uses adaptive thresholds based on symbol volatility:
-        - Low volatility (major forex): 0.5%
-        - Medium volatility (crosses, commodities): 0.7%
-        - High volatility (JPY pairs): 1.0%
-        - Metals (gold, silver): 1.5-2.0%
-        - Crypto (BTC, ETH): 2.5-3.0%
+        Uses adaptive strategies:
+        - Forex: Fixed thresholds (0.5-1.0%)
+        - Crypto/Metals: Volatility-normalized + longer horizon (48h)
         """
-        # Calculate future return over next 24 hours
-        df['future_return'] = df['close'].pct_change(future_bars).shift(-future_bars)
+        # Crypto and metals need special treatment
+        crypto_symbols = ['BTCUSD', 'ETHUSD']
+        metals_symbols = ['XAUUSD', 'XAGUSD']
         
-        # Adaptive thresholds based on symbol characteristics
-        # Low volatility symbols (major forex pairs)
-        low_vol_symbols = ['EURUSD', 'GBPUSD', 'USDCAD']
-        # Medium volatility symbols (crosses, commodity currencies)
-        med_vol_symbols = ['AUDUSD', 'NZDUSD', 'GBPJPY', 'AUDJPY']
-        # High volatility symbols (JPY pairs)
-        high_vol_symbols = ['USDJPY', 'EURJPY']
-        # Metals (gold, silver) - higher thresholds
-        metals_symbols = {'XAUUSD': 0.015, 'XAGUSD': 0.020}  # 1.5%, 2.0%
-        # Crypto (very high volatility) - much higher thresholds
-        crypto_symbols = {'BTCUSD': 0.030, 'ETHUSD': 0.025}  # 3.0%, 2.5%
-        
-        if symbol in low_vol_symbols:
-            threshold = 0.005  # 0.5%
-        elif symbol in med_vol_symbols:
-            threshold = 0.007  # 0.7%
-        elif symbol in high_vol_symbols:
-            threshold = 0.010  # 1.0%
-        elif symbol in metals_symbols:
-            threshold = metals_symbols[symbol]
-        elif symbol in crypto_symbols:
-            threshold = crypto_symbols[symbol]
+        # Use longer prediction horizon for crypto/metals (48 hours instead of 24)
+        if symbol in crypto_symbols or symbol in metals_symbols:
+            prediction_bars = future_bars * 2  # 96 bars = 48 hours for M30
         else:
-            # Default for unknown symbols
-            threshold = 0.007  # 0.7%
+            prediction_bars = future_bars  # 48 bars = 24 hours for M30
+        
+        # Calculate future return
+        df['future_return'] = df['close'].pct_change(prediction_bars).shift(-prediction_bars)
+        
+        # Calculate volatility-normalized threshold for crypto/metals
+        if symbol in crypto_symbols or symbol in metals_symbols:
+            # Use ATR (Average True Range) for volatility measurement
+            high_low = df['high'] - df['low']
+            high_close = abs(df['high'] - df['close'].shift(1))
+            low_close = abs(df['low'] - df['close'].shift(1))
+            true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+            atr_20 = true_range.rolling(20).mean()
+            
+            # Normalize ATR by price to get percentage
+            atr_pct = atr_20 / df['close']
+            
+            # Threshold = 2.0 × ATR (dynamic based on recent volatility)
+            # This adapts to quiet vs volatile periods
+            dynamic_threshold = atr_pct * 2.0
+            
+            # Use median ATR as threshold (more stable than current)
+            threshold = dynamic_threshold.median()
+            
+            # Ensure minimum threshold
+            if symbol in crypto_symbols:
+                threshold = max(threshold, 0.025)  # Minimum 2.5% for crypto
+            else:  # metals
+                threshold = max(threshold, 0.015)  # Minimum 1.5% for metals
+        else:
+            # Fixed thresholds for forex (proven to work well)
+            low_vol_symbols = ['EURUSD', 'GBPUSD', 'USDCAD']
+            med_vol_symbols = ['AUDUSD', 'NZDUSD', 'GBPJPY', 'AUDJPY']
+            high_vol_symbols = ['USDJPY', 'EURJPY']
+            
+            if symbol in low_vol_symbols:
+                threshold = 0.005  # 0.5%
+            elif symbol in med_vol_symbols:
+                threshold = 0.007  # 0.7%
+            elif symbol in high_vol_symbols:
+                threshold = 0.010  # 1.0%
+            else:
+                threshold = 0.007  # 0.7%
         
         buy_threshold = threshold
         sell_threshold = -threshold
