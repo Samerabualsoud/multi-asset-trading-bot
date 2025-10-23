@@ -18,6 +18,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import pickle
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from xgboost import XGBClassifier
+from sklearn.utils.class_weight import compute_class_weight
 from sklearn.preprocessing import RobustScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
@@ -264,6 +266,42 @@ class AutoRetrainSystemV2:
         df['inside_bar'] = ((df['high'] < df['high'].shift(1)) & (df['low'] > df['low'].shift(1))).astype(int)
         df['outside_bar'] = ((df['high'] > df['high'].shift(1)) & (df['low'] < df['low'].shift(1))).astype(int)
         
+        # Advanced features for better accuracy
+        # Candlestick patterns
+        body = abs(df['close'] - df['open'])
+        range_bar = df['high'] - df['low']
+        df['body_ratio'] = body / (range_bar + 1e-10)  # Avoid division by zero
+        df['upper_shadow'] = df['high'] - df[['close', 'open']].max(axis=1)
+        df['lower_shadow'] = df[['close', 'open']].min(axis=1) - df['low']
+        df['is_bullish'] = (df['close'] > df['open']).astype(int)
+        
+        # Volume analysis
+        df['volume_ma_5'] = df['tick_volume'].rolling(5).mean()
+        df['volume_ma_20'] = df['tick_volume'].rolling(20).mean()
+        df['volume_ratio'] = df['tick_volume'] / (df['volume_ma_20'] + 1)
+        
+        # Price momentum over multiple periods
+        for period in [3, 6, 12, 24]:
+            df[f'momentum_{period}'] = df['close'].pct_change(period)
+            df[f'volatility_{period}'] = df['close'].pct_change().rolling(period).std()
+        
+        # Interaction features (RSI × MACD)
+        df['rsi_macd'] = df['rsi_14'] * df['macd']
+        df['rsi_bb_position'] = df['rsi_14'] * df['bb_position']
+        
+        # Lagged features (previous bars)
+        for lag in [1, 2, 3]:
+            df[f'close_lag_{lag}'] = df['close'].shift(lag)
+            df[f'volume_lag_{lag}'] = df['tick_volume'].shift(lag)
+            df[f'rsi_lag_{lag}'] = df['rsi_14'].shift(lag)
+        
+        # Rolling statistics
+        for window in [10, 20, 50]:
+            df[f'close_mean_{window}'] = df['close'].rolling(window).mean()
+            df[f'close_std_{window}'] = df['close'].rolling(window).std()
+            df[f'close_min_{window}'] = df['close'].rolling(window).min()
+            df[f'close_max_{window}'] = df['close'].rolling(window).max()
+        
         return df
     
     def create_labels(self, df, future_bars=48):
@@ -342,44 +380,69 @@ class AutoRetrainSystemV2:
             X_train_scaled = scaler.fit_transform(X_train)
             X_test_scaled = scaler.transform(X_test)
             
-            # Train ensemble
+            # Calculate class weights to handle imbalance
+            classes = np.unique(y_train)
+            class_weights = compute_class_weight('balanced', classes=classes, y=y_train)
+            class_weight_dict = dict(zip(classes, class_weights))
+            logger.info(f"Class weights: {class_weight_dict}")
+            
+            # Train ensemble with improved models
             logger.info("Training Random Forest...")
             rf = RandomForestClassifier(
-                n_estimators=100,
-                max_depth=10,
-                min_samples_split=20,
-                min_samples_leaf=10,
+                n_estimators=200,  # Increased from 100
+                max_depth=15,  # Increased from 10
+                min_samples_split=10,  # Decreased for more splits
+                min_samples_leaf=5,  # Decreased for more leaves
+                class_weight='balanced',  # Handle imbalance
                 random_state=42,
                 n_jobs=-1
             )
             rf.fit(X_train_scaled, y_train)
             
+            logger.info("Training XGBoost...")
+            # Convert class weights for XGBoost
+            sample_weights = np.array([class_weight_dict[label] for label in y_train])
+            xgb = XGBClassifier(
+                n_estimators=200,
+                max_depth=8,
+                learning_rate=0.05,
+                subsample=0.8,
+                colsample_bytree=0.8,
+                random_state=42,
+                n_jobs=-1,
+                eval_metric='mlogloss'
+            )
+            xgb.fit(X_train_scaled, y_train, sample_weight=sample_weights)
+            
             logger.info("Training Gradient Boosting...")
             gb = GradientBoostingClassifier(
-                n_estimators=100,
-                max_depth=5,
-                learning_rate=0.1,
-                min_samples_split=20,
-                min_samples_leaf=10,
+                n_estimators=200,  # Increased from 100
+                max_depth=7,  # Increased from 5
+                learning_rate=0.05,  # Decreased for better convergence
+                min_samples_split=10,
+                min_samples_leaf=5,
                 random_state=42
             )
             gb.fit(X_train_scaled, y_train)
             
-            # Evaluate
+            # Evaluate all models
             rf_pred = rf.predict(X_test_scaled)
+            xgb_pred = xgb.predict(X_test_scaled)
             gb_pred = gb.predict(X_test_scaled)
             
             rf_acc = accuracy_score(y_test, rf_pred)
+            xgb_acc = accuracy_score(y_test, xgb_pred)
             gb_acc = accuracy_score(y_test, gb_pred)
             
             logger.info(f"Random Forest Accuracy: {rf_acc:.4f}")
+            logger.info(f"XGBoost Accuracy: {xgb_acc:.4f}")
             logger.info(f"Gradient Boosting Accuracy: {gb_acc:.4f}")
             
             # Save models
             models_dir = Path('ml_models_simple')
             models_dir.mkdir(exist_ok=True)
             
-            ensemble = {'rf': rf, 'gb': gb, 'feature_columns': feature_columns}
+            ensemble = {'rf': rf, 'xgb': xgb, 'gb': gb, 'feature_columns': feature_columns}
             
             with open(models_dir / f"{symbol}_ensemble.pkl", 'wb') as f:
                 pickle.dump(ensemble, f)
@@ -388,7 +451,10 @@ class AutoRetrainSystemV2:
                 pickle.dump(scaler, f)
             
             logger.info(f"[SUCCESS] Model saved for {symbol}")
-            logger.info(f"Average Accuracy: {(rf_acc + gb_acc) / 2:.4f}")
+            avg_acc = (rf_acc + xgb_acc + gb_acc) / 3
+            logger.info(f"Average Accuracy: {avg_acc:.4f}")
+            logger.info(f"Best Model: {'RF' if rf_acc == max(rf_acc, xgb_acc, gb_acc) else 'XGB' if xgb_acc == max(rf_acc, xgb_acc, gb_acc) else 'GB'}")
+            logger.info(f"Best Accuracy: {max(rf_acc, xgb_acc, gb_acc):.4f}")
             
             return True
             
