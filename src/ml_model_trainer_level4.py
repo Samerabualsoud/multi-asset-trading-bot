@@ -213,17 +213,34 @@ class Level4AdvancedTrainer:
         """Handle class imbalance using SMOTE + undersampling"""
         logger.info(f"Original distribution: BUY={sum(y_train==1)}, SELL={sum(y_train==0)}")
         
-        over = SMOTE(sampling_strategy=0.8, random_state=42)
-        under = RandomUnderSampler(sampling_strategy=1.0, random_state=42)
+        # Check if dataset is too small for SMOTE
+        min_class_count = min(sum(y_train==1), sum(y_train==0))
         
-        steps = [('over', over), ('under', under)]
-        pipeline = ImbPipeline(steps=steps)
+        if min_class_count < 10:
+            # Too small, skip resampling
+            logger.warning(f"Dataset too small ({min_class_count} samples in minority class), skipping SMOTE")
+            return X_train, y_train
         
-        X_resampled, y_resampled = pipeline.fit_resample(X_train, y_train)
-        
-        logger.info(f"Resampled distribution: BUY={sum(y_resampled==1)}, SELL={sum(y_resampled==0)}")
-        
-        return X_resampled, y_resampled
+        try:
+            # Adjust sampling strategy based on dataset size
+            if min_class_count < 50:
+                # Small dataset: just oversample to match majority
+                over = SMOTE(sampling_strategy=1.0, random_state=42, k_neighbors=min(3, min_class_count-1))
+                X_resampled, y_resampled = over.fit_resample(X_train, y_train)
+            else:
+                # Normal dataset: oversample + undersample
+                over = SMOTE(sampling_strategy=0.9, random_state=42)
+                under = RandomUnderSampler(sampling_strategy=1.0, random_state=42)
+                steps = [('over', over), ('under', under)]
+                pipeline = ImbPipeline(steps=steps)
+                X_resampled, y_resampled = pipeline.fit_resample(X_train, y_train)
+            
+            logger.info(f"Resampled distribution: BUY={sum(y_resampled==1)}, SELL={sum(y_resampled==0)}")
+            return X_resampled, y_resampled
+            
+        except Exception as e:
+            logger.warning(f"SMOTE failed: {e}, using original data")
+            return X_train, y_train
     
     def train_base_models(self, X_train, y_train, X_test, y_test):
         """
