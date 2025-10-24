@@ -262,17 +262,24 @@ class MLLLMTradingBotV3:
     def get_ml_prediction(self, symbol):
         """Get ML model prediction"""
         if symbol not in self.models:
+            logger.debug(f"[ANALYSIS] {symbol}: Model not found")
             return None, 0.0
         
         # Get market data
         df = self.get_market_data(symbol)
         if df is None or len(df) < 100:
+            logger.debug(f"[ANALYSIS] {symbol}: Insufficient data (got {len(df) if df is not None else 0} bars, need 100+)")
             return None, 0.0
+        
+        logger.debug(f"[ANALYSIS] {symbol}: Retrieved {len(df)} bars of market data")
         
         # Calculate indicators
         df_features = self.calculate_indicators(df)
         if len(df_features) == 0:
+            logger.debug(f"[ANALYSIS] {symbol}: Feature calculation failed (0 features)")
             return None, 0.0
+        
+        logger.debug(f"[ANALYSIS] {symbol}: Calculated {len(df_features.columns)} features from {len(df_features)} bars")
         
         # Get latest features
         latest = df_features.iloc[-1]
@@ -324,12 +331,15 @@ class MLLLMTradingBotV3:
         if prediction == 1:
             signal = "BUY"
             confidence = pred_proba[1] if len(pred_proba) > 1 else pred_proba[0]
+            logger.debug(f"[ANALYSIS] {symbol}: ML prediction = BUY (confidence: {confidence:.1%}, proba: {pred_proba})")
         elif prediction == -1:
             signal = "SELL"
             confidence = pred_proba[0] if len(pred_proba) > 1 else pred_proba[0]
+            logger.debug(f"[ANALYSIS] {symbol}: ML prediction = SELL (confidence: {confidence:.1%}, proba: {pred_proba})")
         else:
             signal = "SKIP"
             confidence = 0.0
+            logger.debug(f"[ANALYSIS] {symbol}: ML prediction = HOLD (no trade signal, proba: {pred_proba})")
         
         return signal, confidence
     
