@@ -574,6 +574,65 @@ Should we trade? Provide your analysis."""
             logger.error(f"[ERROR] Failed to place trade: {e}")
             return False
     
+    def print_analysis_table(self, results):
+        """Print analysis results in a clean table format"""
+        if not results:
+            return
+        
+        logger.info("\n" + "="*100)
+        logger.info("ANALYSIS SUMMARY")
+        logger.info("="*100)
+        
+        # Table header
+        header = f"{'Symbol':<10} | {'Signal':<6} | {'Confidence':<12} | {'Status':<10} | {'Action'}"
+        logger.info(header)
+        logger.info("-" * 100)
+        
+        # Sort by confidence (highest first)
+        sorted_results = sorted(results, key=lambda x: x['confidence'], reverse=True)
+        
+        # Count by status
+        hold_count = sum(1 for r in results if r['status'] == 'HOLD')
+        signal_count = sum(1 for r in results if r['status'] == 'SIGNAL')
+        low_conf_count = sum(1 for r in results if r['status'] == 'LOW_CONF')
+        error_count = sum(1 for r in results if r['status'] == 'ERROR')
+        open_pos_count = sum(1 for r in results if r['status'] == 'OPEN_POS')
+        
+        # Print each symbol
+        for result in sorted_results:
+            symbol = result['symbol']
+            signal = result['signal']
+            confidence = result['confidence']
+            status = result['status']
+            
+            # Determine action
+            if status == 'SIGNAL':
+                action = f"✅ TRADE {signal}"
+            elif status == 'LOW_CONF':
+                action = f"⚠️  SKIP (conf < 70%)"
+            elif status == 'HOLD':
+                action = "⏸️  HOLD (no setup)"
+            elif status == 'OPEN_POS':
+                action = "📊 POSITION OPEN"
+            else:
+                action = "❌ ERROR"
+            
+            # Format confidence
+            conf_str = f"{confidence:.1%}" if confidence > 0 else "N/A"
+            
+            row = f"{symbol:<10} | {signal:<6} | {conf_str:<12} | {status:<10} | {action}"
+            logger.info(row)
+        
+        # Summary footer
+        logger.info("-" * 100)
+        logger.info(f"SUMMARY: {len(results)} symbols | "
+                   f"✅ {signal_count} tradeable | "
+                   f"⚠️  {low_conf_count} low confidence | "
+                   f"⏸️  {hold_count} hold | "
+                   f"📊 {open_pos_count} open positions | "
+                   f"❌ {error_count} errors")
+        logger.info("="*100 + "\n")
+    
     def run(self):
         """Main trading loop"""
         logger.info("="*80)
@@ -614,30 +673,62 @@ Should we trade? Provide your analysis."""
                     time.sleep(self.scan_interval)
                     continue
                 
-                # Scan symbols
+                # Collect analysis results for table
+                analysis_results = []
+                min_confidence = self.config.get('min_confidence', 0.70)
+                
+                # Scan ALL symbols (including those with positions for visibility)
                 for symbol in self.models.keys():
                     if not self.running:
                         break
                     
-                    # Skip if already have position
+                    # Check if already have position
                     if symbol in open_symbols:
+                        analysis_results.append({
+                            'symbol': symbol,
+                            'signal': 'N/A',
+                            'confidence': 0.0,
+                            'status': 'OPEN_POS'
+                        })
                         continue
                     
                     # Analyze symbol
                     result = self.analyze_symbol(symbol)
                     
+                    # Store result for table (even if None)
                     if result is None:
+                        # Get ML prediction directly for HOLD signals
+                        ml_signal, ml_confidence = self.get_ml_prediction(symbol)
+                        analysis_results.append({
+                            'symbol': symbol,
+                            'signal': ml_signal if ml_signal else 'ERROR',
+                            'confidence': ml_confidence if ml_confidence else 0.0,
+                            'status': 'HOLD' if ml_signal == 'SKIP' else 'ERROR'
+                        })
                         continue
                     
+                    # Determine status
+                    if result['llm_confidence'] >= min_confidence:
+                        status = 'SIGNAL'
+                    else:
+                        status = 'LOW_CONF'
+                    
+                    # Store result
+                    analysis_results.append({
+                        'symbol': symbol,
+                        'signal': result['ml_signal'],
+                        'confidence': result['ml_confidence'],
+                        'status': status
+                    })
+                    
                     # Check confidence threshold
-                    min_confidence = self.config.get('min_confidence', 0.70)
                     if result['llm_confidence'] < min_confidence:
-                        logger.info(f"[SKIP] {symbol}: Low confidence ({result['llm_confidence']:.1%})")
+                        logger.debug(f"[SKIP] {symbol}: Low confidence ({result['llm_confidence']:.1%})")
                         continue
                     
                     # Check if signal is actionable
                     if result['llm_signal'] not in ['BUY', 'SELL']:
-                        logger.info(f"[SKIP] {symbol}: Signal is {result['llm_signal']}")
+                        logger.debug(f"[SKIP] {symbol}: Signal is {result['llm_signal']}")
                         continue
                     
                     # Place trade
@@ -653,6 +744,9 @@ Should we trade? Provide your analysis."""
                         if len(open_symbols) >= max_positions:
                             logger.info("[INFO] Maximum positions reached")
                             break
+                
+                # Print summary table
+                self.print_analysis_table(analysis_results)
                 
                 # Wait before next scan
                 time.sleep(self.scan_interval)
