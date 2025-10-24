@@ -328,13 +328,16 @@ class MLLLMTradingBotV3:
             prediction = rf_pred
         
         # Convert to BUY/SELL
+        # pred_proba format: [BUY_prob, HOLD_prob, SELL_prob] for classes [-1, 0, 1]
+        # But sklearn orders by class label: -1 (SELL), 0 (HOLD), 1 (BUY)
+        # So pred_proba = [SELL_prob, HOLD_prob, BUY_prob]
         if prediction == 1:
             signal = "BUY"
-            confidence = pred_proba[1] if len(pred_proba) > 1 else pred_proba[0]
+            confidence = pred_proba[2] if len(pred_proba) > 2 else pred_proba[-1]  # BUY is last index
             logger.debug(f"[ANALYSIS] {symbol}: ML prediction = BUY (confidence: {confidence:.1%}, proba: {pred_proba})")
         elif prediction == -1:
             signal = "SELL"
-            confidence = pred_proba[0] if len(pred_proba) > 1 else pred_proba[0]
+            confidence = pred_proba[0]  # SELL is first index
             logger.debug(f"[ANALYSIS] {symbol}: ML prediction = SELL (confidence: {confidence:.1%}, proba: {pred_proba})")
         else:
             signal = "SKIP"
