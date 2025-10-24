@@ -607,15 +607,15 @@ Should we trade? Provide your analysis."""
             
             # Determine action
             if status == 'SIGNAL':
-                action = f"✅ TRADE {signal}"
+                action = f"[TRADE] {signal}"
             elif status == 'LOW_CONF':
-                action = f"⚠️  SKIP (conf < 70%)"
+                action = f"[SKIP] Low confidence < 70%"
             elif status == 'HOLD':
-                action = "⏸️  HOLD (no setup)"
+                action = "[HOLD] No setup"
             elif status == 'OPEN_POS':
-                action = "📊 POSITION OPEN"
+                action = "[OPEN] Position active"
             else:
-                action = "❌ ERROR"
+                action = "[ERROR] Analysis failed"
             
             # Format confidence
             conf_str = f"{confidence:.1%}" if confidence > 0 else "N/A"
@@ -626,11 +626,11 @@ Should we trade? Provide your analysis."""
         # Summary footer
         logger.info("-" * 100)
         logger.info(f"SUMMARY: {len(results)} symbols | "
-                   f"✅ {signal_count} tradeable | "
-                   f"⚠️  {low_conf_count} low confidence | "
-                   f"⏸️  {hold_count} hold | "
-                   f"📊 {open_pos_count} open positions | "
-                   f"❌ {error_count} errors")
+                   f"Tradeable: {signal_count} | "
+                   f"Low confidence: {low_conf_count} | "
+                   f"Hold: {hold_count} | "
+                   f"Open positions: {open_pos_count} | "
+                   f"Errors: {error_count}")
         logger.info("="*100 + "\n")
     
     def run(self):
